@@ -8,30 +8,43 @@ from lightning.pytorch.loggers import TensorBoardLogger
 
 from synapse.core.config import ConfigManager
 from synapse.core.logger import EnhancedLogger
-from synapse.core.model_module import ModelModule, SaveTestOutputs, SaveONNX
+from synapse.core.callbacks import SaveTestOutputs, SaveONNX
+from synapse.core.model_module import ModelModule
 from synapse.core.data_module import DataModule
 
 
-def update_file_path(run_dir, log_file_path: str, replace_auto: str = "", suffix: str = "") -> str:
-    dirname = os.path.dirname(log_file_path)
+def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: str = "") -> str:
+    dirname = os.path.dirname(file_path)
     if dirname:
         if os.path.isabs(dirname):
-            log_file_path = log_file_path
+            updated_file_path = file_path
         else:
-            log_file_path = os.path.join(run_dir, log_file_path)
+            updated_file_path = os.path.join(run_dir, file_path)
     else:
-        log_file_path = os.path.join(run_dir, log_file_path)
-    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-    if '{auto}' in log_file_path:
+        updated_file_path = os.path.join(run_dir, file_path)
+    os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
+    if suffix:
+        suffix = f"_{suffix}"
+    if '{auto}' in updated_file_path:
         if replace_auto == "":
             replace_auto = time.strftime('%Y%m%d_%H%M%S')
-        log_file_path = log_file_path.replace('{auto}', replace_auto + f'_{suffix}')
-    return log_file_path
+        updated_file_path = updated_file_path.replace('{auto}', replace_auto + f'{suffix}')
+    return updated_file_path
 
-def train(trainer, model, data_config, run_config, train_file_paths, val_file_paths, test_file_paths,_logger):
+def train(model, model_config, data_config, run_config,
+          train_file_paths, val_file_paths, test_file_paths,
+          _logger, run_info_str, path_suffix: str = ""):
     _logger.info(f"{len(train_file_paths)} Train files: {train_file_paths}")
     _logger.info(f"{len(val_file_paths)} Validation files: {val_file_paths}")
     _logger.info(f"{len(test_file_paths)} Test files: {test_file_paths}")
+
+    deterministic = False
+    if run_config.seed:
+        L.seed_everything(run_config.seed, workers=True, verbose=False)
+        _logger.info(f"Set random seed to {run_config.seed}")
+        deterministic = True
+    else:
+        _logger.info("No random seed specified")
 
     data_module = DataModule(
         data_cfg=data_config,
@@ -39,6 +52,47 @@ def train(trainer, model, data_config, run_config, train_file_paths, val_file_pa
         train_file_list=train_file_paths,
         val_file_list=val_file_paths,
         test_file_list=test_file_paths
+    )
+
+    tb_logger = TensorBoardLogger(save_dir=run_config.run_dir, name=f"TensorBoardLogs_{run_info_str}")
+
+    trainer_callbacks = []
+    if run_config.get("test_output"):
+        test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str, path_suffix)
+        test_output_callback = SaveTestOutputs(
+            data_cfg=data_config,
+            model_cfg=model_config,
+            run_cfg=run_config,
+            output_filepath=test_output
+        )
+        trainer_callbacks.append(test_output_callback)
+
+    if run_config.get("onnx_path"):
+        onnx_path = update_file_path(run_config.run_dir, run_config.onnx_path, run_info_str, path_suffix)
+        onnx_callback = SaveONNX(
+            data_cfg=data_config,
+            model_cfg=model_config,
+            run_cfg=run_config,
+            onnx_path=onnx_path
+        )
+        trainer_callbacks.append(onnx_callback)
+    # TODO: customized checkpoint callback (save ckpt to another place, not tb logger dir)
+    # TODO: model_summary callback.
+
+    trainer = L.Trainer(
+        accelerator=run_config.device,
+        devices=run_config.n_devices,
+        deterministic=deterministic,
+        num_sanity_val_steps=2 if run_config.val_sanity_check else 0,
+        default_root_dir=run_config.run_dir,
+        enable_checkpointing=True,
+        max_epochs=run_config.epochs,
+        logger=tb_logger,
+        precision= '16-mixed' if run_config.use_amp else '32-true',
+        enable_progress_bar=True,
+        enable_model_summary=True,
+        inference_mode=True,
+        callbacks= trainer_callbacks,
     )
 
     if 'train' in run_config.run_mode:
@@ -89,37 +143,6 @@ def main():
     if logger_config.get('debug_file'):
         _logger.debug("Writing debug logs to file: %s", logger_config['debug_file'])
 
-    deterministic = False
-    if run_config.seed:
-        L.seed_everything(run_config.seed, workers=True, verbose=False)
-        _logger.info(f"Set random seed to {run_config.seed}")
-        deterministic = True
-    else:
-        _logger.info("No random seed specified")
-
-    tb_logger = TensorBoardLogger(save_dir=run_config.run_dir, name=f"TensorBoardLogs_{run_info_str}")
-
-    trainer_callbacks = []
-    if run_config.get("test_output"):
-        test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str)
-        test_output_callback = SaveTestOutputs(
-            data_cfg=data_config,
-            model_cfg=model_config,
-            run_cfg=run_config,
-            output_filepath=test_output
-        )
-        trainer_callbacks.append(test_output_callback)
-    
-    if run_config.get("onnx_path"):
-        onnx_path = update_file_path(run_config.run_dir, run_config.onnx_path, run_info_str)
-        onnx_callback = SaveONNX(
-            data_cfg=data_config,
-            model_cfg=model_config,
-            run_cfg=run_config,
-            onnx_path=onnx_path
-        )
-        trainer_callbacks.append(onnx_callback)
-
     model = ModelModule(
         run_cfg=run_config,
         model_class=model_config.model,
@@ -131,40 +154,39 @@ def main():
         lr_scheduler=model_config.lr_scheduler,
         metrics=model_config.metrics,
     )
-    # TODO: customized checkpoint callback (save ckpt to another place, not tb logger dir), model_summary callback.
-    trainer = L.Trainer(
-        accelerator=run_config.device,
-        devices=run_config.n_devices,
-        deterministic=deterministic,
-        num_sanity_val_steps=2 if run_config.val_sanity_check else 0,
-        default_root_dir=run_config.run_dir,
-        enable_checkpointing=True,
-        max_epochs=run_config.epochs,
-        logger=tb_logger,
-        precision= '16-mixed' if run_config.use_amp else '32-true',
-        enable_progress_bar=True,
-        enable_model_summary=True,
-        inference_mode=True,
-        callbacks= trainer_callbacks,
-    )
 
-    # TODO: cross-validation support
     if run_config.cross_validation:
-        _logger.info("Starting cross validation...")
+        # TODO: modify the model checkpoint name, etc., according to fold number
+        _logger.info("Cross validation: ON")
         if run_config.k_folds is None:
             raise ValueError("k_folds is not specified in run configuration, cannot perform cross-validation.")
-        _logger.info("Cross-validation with %d folds.", run_config.k_folds)
+        k_folds = run_config.k_folds
+        _logger.info("Cross-validation with %d folds.", k_folds)
+        _logger.info("Train/Val/Test files will be merged into a single list then split into folds...")
+        file_paths = []
+        file_paths.extend(data_config.train_files)
+        file_paths.extend(data_config.val_files)
+        file_paths.extend(data_config.test_files)
+        file_paths = [filepath for path_pattern in file_paths for filepath in glob.glob(path_pattern)]
         if run_config.cross_validation_var:
-            pass
+            cv_var = run_config.cross_validation_var
+            _logger.info(f"Cross-validation variable specified: {cv_var}")
+            if data_config.selection:
+                base_selection = f"({data_config.selection}) & "
+            else:
+                base_selection = ""
+            for i in range(k_folds):
+                data_config.train_selection = (f"{base_selection}({cv_var}%{k_folds} != {i}) & "
+                                                f"({cv_var}%{k_folds} != {(i+1)%k_folds})")
+                data_config.val_selection = f"{base_selection}({cv_var}%{k_folds} == {(i+1)%k_folds})"
+                data_config.test_selection = f"{base_selection}({cv_var}%{k_folds} == {i})"
+                _logger.info(f"======= Running Fold {i} of {k_folds} =======")
+                train(model, model_config, data_config, run_config,
+                        file_paths, file_paths, file_paths,
+                        _logger, run_info_str, "fold_{i}")
         else: # very inflexible way, if no cross-validation variable is specified.
             _logger.info("No cross-validation variable specified.")
             _logger.info("Checking if all folds ('fold_X' in file name) are present in the dataset...")
-            file_paths = []
-            file_paths.extend(data_config.train_files)
-            file_paths.extend(data_config.val_files)
-            file_paths.extend(data_config.test_files)
-            file_paths = [filepath for path_pattern in file_paths for filepath in glob.glob(path_pattern)]
-            k_folds = run_config.k_folds
             for i in range(k_folds):
                 if sum(f"fold_{i}" in file_path for file_path in file_paths) == 0:
                     raise RuntimeError(f"No file found for fold {i}")
@@ -181,8 +203,10 @@ def main():
                         val_file_paths.append(file_path)
                     if f"fold_{(i+k_folds-1)%k_folds}" in file_path:
                         test_file_paths.append(file_path)
-                _logger.info(f"======= Fold {i} =======")
-                train(trainer, model, data_config, run_config, train_file_paths, val_file_paths, test_file_paths, _logger)
+                _logger.info(f"======= Running Fold {i} of {k_folds} =======")
+                train(model, model_config, data_config, run_config,
+                        train_file_paths, val_file_paths, test_file_paths,
+                        _logger, run_info_str, "fold_{i}")
     else:
         train_file_paths = []
         val_file_paths = []
@@ -193,7 +217,9 @@ def main():
             val_file_paths.extend(glob.glob(file_path))
         for file_path in data_config.test_files:
             test_file_paths.extend(glob.glob(file_path))
-        train(trainer, model, data_config, run_config, train_file_paths, val_file_paths, test_file_paths, _logger)
+        train(model, model_config, data_config, run_config,
+                train_file_paths, val_file_paths, test_file_paths,
+                _logger, run_info_str)
         #TODO: checkpoint loading support
 
 

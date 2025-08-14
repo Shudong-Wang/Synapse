@@ -1,6 +1,7 @@
 # a script to convert the CAF flat ntuple to the format suitable for Synapse
 import argparse
 import glob
+import math
 import os
 from pathlib import Path
 
@@ -28,6 +29,7 @@ def load_config(config_path) -> dict:
     Returns:
         dict: configuration dictionary with branches
     """
+    print(f"Loading configuration from: {config_path}")
     with open(config_path, 'r') as file:
         cfg = yaml.safe_load(file)
 
@@ -65,6 +67,7 @@ def convert(input_data: ak.Array, cfg: dict):
     chunk_size = max(1, int(memory_limit / avg_row_size))
 
     output_data = {}
+
     total_chunks = (len(input_data) + chunk_size - 1) // chunk_size
 
     # Total steps: number of features + number of event variables + 1 (for zipping and new variables)
@@ -98,7 +101,9 @@ def convert(input_data: ak.Array, cfg: dict):
             output_data = build_new_variables(output_data, cfg.get('new_variables'))
             pbar.update(1)  # Update progress bar for new variables
 
+
     return output_data
+
 
 
 
@@ -117,13 +122,16 @@ def main():
     parser.add_argument('-c','--config', type=str, required=True, help='Configuration file path')
 
     args = parser.parse_args()
-    config_path = valid_config(args.config)
 
-    config = load_config(config_path)
+    print("Starting hhml CAF ntuple conversion process...")
+
+    config = load_config(valid_config(args.config))
 
     in_file_paths = []
     for file_path in config.get('in_file_paths', []):
         in_file_paths.extend(glob.glob(file_path))
+
+    print("Converting...")
 
     data_in, file_names_in = read_files(file_paths=in_file_paths,
                                         keys=config['branches'],
@@ -157,6 +165,7 @@ def main():
                 file_path_out = os.path.join(config['output_dir'], sub_dir_name ,f"merged_total.root")
                 write_file(file_path_out, data, tree_name=config.get('out_tree_name', 'tree'))
 
+    print("Finished.")
 if __name__ == "__main__":
     main()
 

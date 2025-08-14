@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from types import NoneType
 from typing import Dict, Any, Type, List
 
-from synapse.core.tools import flatten_nested_list
+from .tools import flatten_nested_list
 
 class ConfigBase(ABC):
     """
@@ -35,6 +35,15 @@ class ConfigBase(ABC):
                 f"Available keys: {available_keys}"
             )
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """
+        Set configuration values with validation
+        """
+        if name.startswith('_'):
+            super().__setattr__(name, value)
+        else:
+            self._validate_and_set(name, value)
+
     def __getstate__(self):
         """Enable pickling for multiprocessing"""
         return self.__dict__.copy()
@@ -43,20 +52,28 @@ class ConfigBase(ABC):
         """Enable unpickling for multiprocessing"""
         self.__dict__.update(state)
 
-    # def __setattr__(self, name: str, value: Any) -> None:
-    #     """
-    #     Set configuration values with validation
-    #     """
-    #     if name.startswith('_'):
-    #         super().__setattr__(name, value)
-    #     else:
-    #         self._validate_and_set(name, value)
-
     def __contains__(self, key: str) -> bool:
         """
         Check if key exists in configuration
         """
         return key in self._data
+
+    def __copy__(self):
+        """
+        Create a shallow copy of the configuration
+        """
+        new_instance = self.__class__(self._cfg_file_path)
+        new_instance._data = self._data.copy()
+        return new_instance
+
+    def __deepcopy__(self, memo):
+        """
+        Create a deep copy of the configuration
+        """
+        from copy import deepcopy
+        new_instance = self.__class__(self._cfg_file_path)
+        new_instance._data = deepcopy(self._data, memo)
+        return new_instance
 
     @abstractmethod
     def validate(self) -> List[str]:
@@ -208,6 +225,7 @@ class DataConfig(ConfigBase):
         'labels': dict,
         'selection': (str, NoneType),
         'new_variables': (dict, NoneType),
+        'assistants': (list, NoneType),
         'spectators': (list, NoneType),
         'weights': (dict, NoneType),
         'label_keys': list,
@@ -227,6 +245,7 @@ class DataConfig(ConfigBase):
         data['active_keys'] = flatten_nested_list([
             *data['inputs'].values(),
             *data['label_keys'],
+            *data.get('assistants', []),
             *data.get('weights', {}).get('vars', [])
         ])
 
@@ -302,6 +321,7 @@ class DataConfig(ConfigBase):
         if self._data['test_files'] is None:
             self._data['test_files'] = []
         self._data.setdefault('spectators', None)
+        self._data.setdefault('assistants', None)
         self._data.setdefault('weights', None)
         self._data.setdefault('selection', None)
         self._data.setdefault('new_variables', None)

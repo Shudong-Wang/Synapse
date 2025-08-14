@@ -49,20 +49,22 @@ def customized_eval(data: ak.Array, expr: str):
     }
     return eval(expr, {"__builtins__": None}, locals_env)
 
-def build_new_variables(data: ak.Array, new_var_entries: dict | None) -> ak.Array:
+def build_new_variables(data: ak.Array, new_var_entries: dict | None, supress_warning: bool = False) -> ak.Array:
     """
     Build new variables from the data
 
     Args:
         data (ak.Array): input data
         new_var_entries (dict | None): new variables to build
+        supress_warning (bool): if True, suppress warnings for existing variables
     Returns:
         ak.Array: data with new variables
     """
     if new_var_entries:
         for var_name, var_expr in new_var_entries.items():
             if var_name in data.fields:
-                _logger.warning(f"{var_name} already exists in the input data, skipping")
+                if not supress_warning:
+                    _logger.warning(f"{var_name} already exists in the input data, skipping")
                 continue
             try:
                 data[var_name] = customized_eval(data, var_expr)

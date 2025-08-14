@@ -1,8 +1,10 @@
+import copy
+
 import lightning as L
 import torch
 
-from synapse.core.config import DataConfig, RunConfig
-from synapse.core.dataset import MapStyleDataset #, HybridDataset
+from .config import DataConfig, RunConfig
+from .dataset import MapStyleDataset #, HybridDataset
 
 class DataModule(L.LightningDataModule):
     def __init__(
@@ -20,26 +22,33 @@ class DataModule(L.LightningDataModule):
         self.train_file_list = train_file_list
         self.val_file_list = val_file_list
         self.test_file_list = test_file_list
-        self.data_cfg = data_cfg
         self.run_cfg = run_cfg
+        self.train_data_cfg = copy.deepcopy(data_cfg)
+        self.val_data_cfg = copy.deepcopy(data_cfg)
+        self.test_data_cfg = copy.deepcopy(data_cfg)
+
+        if run_cfg.cross_validation and run_cfg.cross_validation_var:
+            self.train_data_cfg.selection = data_cfg.train_selection
+            self.val_data_cfg.selection = data_cfg.val_selection
+            self.test_data_cfg.selection = data_cfg.test_selection
 
     def setup(self, stage: str | None = None):
         if stage == "fit" or stage is None:
             self.train_dataset = MapStyleDataset(
                 self.train_file_list,
                 'train',
-                self.data_cfg
+                self.train_data_cfg
             )
             self.val_dataset = MapStyleDataset(
                 self.val_file_list,
                 'val',
-                self.data_cfg
+                self.val_data_cfg
             )
         if stage == "test" or stage is None:
             self.test_dataset = MapStyleDataset(
                 self.test_file_list,
                 'test',
-                self.data_cfg
+                self.test_data_cfg
             )
 
     def train_dataloader(self):

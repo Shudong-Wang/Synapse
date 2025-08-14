@@ -18,17 +18,19 @@ val_sanity_check: false  # Set to true to run a 2 batch sanity check on validati
 
 cross_validation: true
 
-#cross_validation_var: 'eventNumber'  # Variable to use for cross-validation
+cross_validation_var: 'eventNumber'  # Variable for fold splitting, must be in the 'assistants' in data config
 
 k_folds: 3
 
 logger_config:
-  enable_stdout: true
+  enable_stdout: true # Enable logging to stdout
   log_file: 'logs/run_log_{auto}.log'
 
-seed: 42
-use_amp: false
+seed: 42 # Random seed for reproducibility
+use_amp: false # Use Automatic Mixed Precision (AMP) for training
 
 test_output: 'test_output/output_{auto}.root'  # Path to save test output file
+
+#onnx_path: 'onnx_model/model_{auto}.onnx'  # Path to save ONNX model file after test
 
 # export_onnx: 'model.onnx' # not supported yet

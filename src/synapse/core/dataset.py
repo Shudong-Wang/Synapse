@@ -5,9 +5,9 @@ import awkward as ak
 import numpy as np
 from torch.utils.data import Dataset, IterableDataset
 
-from synapse.core.tools import apply_selection, build_new_variables, extract_fields_from_expr
-from synapse.core.fileio import read_files
-from synapse.core.config import DataConfig
+from .tools import apply_selection, build_new_variables, extract_fields_from_expr
+from .fileio import read_files
+from .config import DataConfig
 
 _logger = logging.getLogger("SynapseLogger")
 
@@ -15,11 +15,10 @@ def prepare_data(data: ak.Array, data_cfg: DataConfig, dataset_type: str) -> dic
     """
     Prepare the data according to the configuration.
     """
-    # Apply selection and build new variables
-    if data_cfg.selection:
-        data = apply_selection(data, data_cfg.selection, data_cfg.new_variables)
-    else:
-        data = build_new_variables(data, data_cfg.new_variables)
+    # Apply selection
+    data = apply_selection(data, data_cfg.selection, data_cfg.new_variables)
+    # Build new variables
+    data = build_new_variables(data, data_cfg.new_variables, supress_warning=True)
     # TODO: implement padding for variable length arrays
     # TODO: check if the data is empty after selection
     # TODO: check if the data only have one class in classification tasks

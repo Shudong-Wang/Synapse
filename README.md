@@ -24,23 +24,21 @@ cd Synapse
 pip install -e .
 ```
 
-I'm considering publishing this package to PyPI, but it will take some time.
-
 ### Usage
 
 #### For HHML analysis
 First, you need to convert your CAF ntuple to the format accepted by Synapse.
 ```bash
-cp Synapse/src/synapse/configs/convert_config.yaml /path/to/your/working/directory
+cp Synapse/configs/convert_config.yaml /path/to/your/working/directory
 # After editing convert_config.yaml
 synapse-convert-hhml -c convert_config.yaml
 ```
 
 Then you can run the Synapse training:
 ```bash
-cp Synapse/src/synapse/configs/run_config.yaml /path/to/your/working/directory
-cp Synapse/src/synapse/configs/data_config.yaml /path/to/your/working/directory
-cp Synapse/src/synapse/configs/model_config.yaml /path/to/your/working/directory
+cp Synapse/configs/run_config.yaml /path/to/your/working/directory
+cp Synapse/configs/data_config.yaml /path/to/your/working/directory
+cp Synapse/configs/model_config.yaml /path/to/your/working/directory
 # After properly editing run_config.yaml, data_config.yaml, and model_config.yaml
 synapse -d data_config.yaml -m model_config.yaml -r run_config.yaml
 ```
