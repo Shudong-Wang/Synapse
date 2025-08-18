@@ -1,0 +1,106 @@
+common_config: &common_settings
+  file_pattern: "" #dir of hdf5 file
+  file_block: "sr" #name of the compound dataset in h5
+  weight_col: "weight"
+  label_col: "label_signal"
+
+  # base bin number, not for plotting, used for trafo
+  # SHALL NOT BE OVERWRITTEN
+  base_bin_num: 20000
+
+  base_dir: ""
+  fold_dirs:
+    fold_0: ""
+  model_name: " "
+
+
+columns: &columns
+  s: "label_signal_score"
+  b: "label_background_score"
+  eventNumber: "eventNumber"
+  dsid: "dsid"
+  xgb_score: "xgb_score"
+
+selection: &selection "(dsid!=0) "
+input_data:
+  - <<: *common_settings
+    # override base_dir and fold_dirs if needed
+    classifiers:
+      "GNN":
+        columns: *columns
+        expression: "2 / (1 + b/s) - 1"
+        selection: *selection
+        split_train_test_val: False
+        score_plot_config:
+          train: { "type": "hist", "histtype": "stepfilled", "linewidth": 2, "linestyle": "-" }
+          val: { "type": "hist", "histtype": "step", "linewidth": 2, "linestyle": "--" }
+          test: { "type": "marker", "marker": "o", "markersize": 10, "linestyle": "None" }
+        score_plot_color: "#8DAFAB"
+      "XGBoost":
+        columns:
+          x: "xgb_score"
+        expression: "2*x-1"
+        split_train_test_val: False
+        score_plot_config:
+          test: { "type": "hist", "histtype": "stepfilled", "linewidth": 2, "linestyle": "--" }
+        score_plot_color: "#F48892"
+
+
+include_roc: False
+include_roc_inverse: True
+include_score_distribution: True
+include_score_distribution_trafo: True
+
+roc:
+  drop_negative_weights: True
+  figure_size: [ 10, 8 ]
+  # All configs bellow are ONLY for background rejection vs signal efficiency plot
+  roc_range: [ 0.1, 1.0 ]
+  reference_dataset: 'test' # dataset used for reference in ratio plot
+  reference_classifier: "GNN" # classifier used for referece in ratio plot
+  reference_fold: 'fold_0' # fold used for reference in ratio plot
+
+score_distribution:
+  # !!!! IMPORTANT: Please keep the range of the classifier's score within this range !!!! #
+  # !!!!            events with scores outside this range will be ignored             !!!! #
+  # !!!!            and not be considered for the evaluation.                         !!!! #
+  # !!!!            Please use expression to transform the score to this range.       !!!! #
+  x_min: -1
+  x_max: 1
+
+  figure_size: [ 10, 12 ]
+  bin_num: 15 # for plotting
+  y_log: True
+  reference_dataset: 'test' # dataset used for reference in ratio plot
+  baseline_classifier: "GNN" # classifier used for baseline in ratio plot
+  ratio_pulls: False # using (A-B) / sqrt(sigma_A**2 + sigma_B**2) instead of A / B for ratio plot
+
+  # for fold comparison plot
+  fold_colors:
+    fold_0: "#F48892"
+    fold_1: "#91CAE8"
+    fold_2: "#8DAFAB"
+  fold_reference: "fold_0"
+
+  category:
+    0:
+      name: "Background"
+      color: "#000080"
+      # only for comparison plot with all classifiers
+      linestyle: "--"
+      linewidth: 3
+    1:
+      name: "Signal"
+      color: "#B22222"
+      # only for comparison plot with all classifiers
+      linestyle: "-"
+      linewidth: 3
+
+  trafo:
+    # use HHARD binning for trafo, otherwise soft binning: https://gitlab.cern.ch/atlas-physics/HDBS/DiHiggs/bbtautau/HHARD/-/blob/master/python/definitions/bbttBinning.py#L6
+    use_hhard_binning: True
+    trafo_sixty_mc_low_bound: 3.0
+    trafo_six_y: 10
+    trafo_six_z: 5
+    trafo_six_mc_stat_up_bound: 0.2
+    # trafo_six_mc_stat_up_bound: 0.3
