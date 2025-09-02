@@ -1,0 +1,3 @@
+[submodule "hhml_eval"]
+	path = hhml_eval
+	url = ssh://git@gitlab.cern.ch:7999/jiahui/hhml_eval.git
