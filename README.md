@@ -29,9 +29,9 @@ pip install -e .
 #### For HHML analysis
 First, you need to convert your CAF ntuple to the format accepted by Synapse.
 ```bash
-cp Synapse/configs/convert_config.yaml /path/to/your/working/directory
-# After editing convert_config.yaml
-synapse-convert-hhml -c convert_config.yaml
+cp Synapse/configs/hhml_convert_config.yaml /path/to/your/working/directory
+# After editing hhml_convert_config.yaml
+synapse-convert-hhml -c hhml_convert_config.yaml
 ```
 
 Then you can run the Synapse training:

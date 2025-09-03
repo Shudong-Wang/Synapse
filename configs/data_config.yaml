@@ -17,17 +17,17 @@ test_normalized_range: true
 tree_name: sr
 
 new_variables:
-  log1p_pt: "(np.log1p(pt)-11.0)/0.63"
-  log1p_e: "(np.log1p(e)-11.5)/0.78"
+  log1p_pt: "np.log1p(pt)"
+  log1p_e: "np.log1p(e"
   px: "pt * np.cos(phi)"
   py: "pt * np.sin(phi)"
   pz: "pt * np.sinh(eta)"
   abs_weight: "np.abs(weight)"
-  log1p_HT_vis: "(np.log1p(HT_vis)-12.6)/0.4"
-  log1p_HT_lep: "(np.log1p(HT_lep)-11.6)/0.4"
-  log1p_HT_jet: "(np.log1p(HT_jet)-12.1)/0.55"
-  log1p_HT_lepMET: "(np.log1p(HT_lepMET)-12.1)/0.37"
-  log1p_m_all: "(np.log1p(m_all)-13.0)/0.46"
+  log1p_HT_vis: "np.log1p(HT_vis)"
+  log1p_HT_lep: "np.log1p(HT_lep)"
+  log1p_HT_jet: "np.log1p(HT_jet)"
+  log1p_HT_lepMET: "np.log1p(HT_lepMET)"
+  log1p_m_all: "np.log1p(m_all)"
 
 
 selection:
