@@ -78,7 +78,7 @@ def convert(input_data: ak.Array, cfg: dict):
         (1 if 'new_variables' in cfg else 0)
     )
 
-    with tqdm(total=total_steps, desc="Converting data", unit="step") as pbar:
+    with tqdm(total=total_steps, desc="Converting dataset", unit="step") as pbar:
 
         for feat in object_variables:
             feat_data = []
@@ -138,10 +138,6 @@ def main():
     
     for file_path in config.get('in_file_paths', []):
         in_file_paths.extend(glob.glob(file_path))
-
-
-    print("Converting...")
-
 
     data_in, file_names_in = read_files(file_paths=in_file_paths,
                                         keys=config['branches'],
