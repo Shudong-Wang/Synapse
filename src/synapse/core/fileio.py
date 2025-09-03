@@ -247,7 +247,7 @@ def read_files(
         normalized_range: bool = True,
         merge: bool = True,
         **kwargs
-) -> ak.Array | list[ak.Array]:
+):
     """
     Read multiple files and return the data
 
@@ -260,7 +260,8 @@ def read_files(
         **kwargs: additional arguments for the file reader
 
     Returns:
-        ak.Array: Concatenated data from all files
+        ak.Array / list[ak.Array]: Concatenated / list of data from all files
+        list[str]: list of file names
     """
     data = []
     file_names = []

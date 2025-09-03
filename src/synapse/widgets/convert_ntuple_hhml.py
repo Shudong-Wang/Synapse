@@ -101,22 +101,7 @@ def convert(input_data: ak.Array, cfg: dict):
         if 'new_variables' in cfg:
             output_data = build_new_variables(output_data, cfg.get('new_variables'))
             pbar.update(1)  # Update progress bar for new variables
-    for field, value_pair in cfg.get('outlier_replacements', {}).items():
-        if field in output_data.fields:
-            if math.isnan(value_pair[0]):  # 如果配置中的第一个值是 NaN
-                output_data[field] = ak.fill_none(ak.nan_to_none(output_data[field]), value_pair[1], axis=None)
-            else:
-                output_data[field] = ak.where(output_data[field] == value_pair[0], value_pair[1], output_data[field])
-        else:
-            raise ValueError(
-                f"Outlier replacement: \nField '{field}' not found in output data. Available fields: {output_data.fields}"
-            )
-    return output_data
 
-
-
-
-    # outlier replacement
     for field, value_pair in cfg.get('outlier_replacements', {}).items():
         if field in output_data.fields:
             if math.isnan(value_pair[0]):
@@ -124,8 +109,9 @@ def convert(input_data: ak.Array, cfg: dict):
             else:
                 output_data[field] = ak.where(output_data[field] == value_pair[0], value_pair[1], output_data[field])
         else:
-            raise ValueError(f"Outlier replacement: \nField '{field}' not found in output data. Available fields: {output_data.fields}")
-
+            raise ValueError(
+                f"Outlier replacement: \nField '{field}' not found in output data. Available fields: {output_data.fields}"
+            )
     return output_data
 
 
@@ -163,6 +149,9 @@ def main():
                                         tree_name=config.get('in_tree_name'))
 
     if config.get('merge_input'):
+        print("Input files merged together for processing.")
+        print("Output files will be saved in the 'merged' subdirectory.")
+        print("Processing merged data...")
         data_out = convert(data_in, config)
         if config.get('k_folds', 1) > 1:
             data_out_folds = split_folds(data_out, config, config.get('fold_splitting_var', 'eventNumber'))
@@ -173,8 +162,11 @@ def main():
             file_path_out = os.path.join(config['output_dir'], "merged" ,f"merged_total.root")
             write_file(file_path_out, data_out, tree_name=config.get('out_tree_name', 'tree'))
     else:
+        print("Input files processed separately.")
+        print("Output files will be saved in subdirectories named after the input files.")
         data_out = []
-        for data in data_in:
+        for idx, data in enumerate(data_in):
+            print(f"Processing {file_names_in[idx]} ...")
             data_out.append(convert(data, config))
         if config.get('k_folds', 1) > 1:
             for i, data in enumerate(data_out):
