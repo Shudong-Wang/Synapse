@@ -19,7 +19,7 @@ source synapse_venv/bin/activate
 
 Install Synapse in editable mode:
 ```bash
-git clone git@github.com:Shudong-Wang/Synapse.git
+git clone git@github.com:Shudong-Wang/Synapse.git --recursive
 cd Synapse
 pip install -e .
 ```
