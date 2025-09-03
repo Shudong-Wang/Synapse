@@ -143,16 +143,16 @@ def main():
                                         keys=config['branches'],
                                         merge=config['merge_input'],
                                         tree_name=config.get('in_tree_name'))
-
+    k_folds = config.get('k_folds', 1)
     if config.get('merge_input'):
         print("Input files merged together for processing.")
         print("Output files will be saved in the 'merged' subdirectory.")
         print("Processing merged data...")
         data_out = convert(data_in, config)
-        if config.get('k_folds', 1) > 1:
+        if k_folds > 1:
             data_out_folds = split_folds(data_out, config, config.get('fold_splitting_var', 'eventNumber'))
             for i, fold in enumerate(data_out_folds):
-                file_path_out = os.path.join(config['output_dir'], "merged" ,f"fold_{i}.root")
+                file_path_out = os.path.join(config['output_dir'], "merged" ,f"{k_folds}fold_{i}.root")
                 write_file(file_path_out, fold, tree_name=config.get('out_tree_name', 'tree'))
         else:
             file_path_out = os.path.join(config['output_dir'], "merged" ,f"merged_total.root")
@@ -164,12 +164,12 @@ def main():
         for idx, data in enumerate(data_in):
             print(f"Processing {file_names_in[idx]} ...")
             data_out.append(convert(data, config))
-        if config.get('k_folds', 1) > 1:
+        if k_folds > 1:
             for i, data in enumerate(data_out):
                 data_folds = split_folds(data, config, config.get('fold_splitting_var', 'eventNumber'))
                 for j, fold in enumerate(data_folds):
                     sub_dir_name = Path(file_names_in[i]).stem
-                    file_path_out = os.path.join(config['output_dir'], sub_dir_name ,f"fold_{j}.root")
+                    file_path_out = os.path.join(config['output_dir'], sub_dir_name ,f"{k_folds}fold_{j}.root")
                     write_file(file_path_out, fold, tree_name=config.get('out_tree_name', 'tree'))
         else:
             for i, data in enumerate(data_out):
