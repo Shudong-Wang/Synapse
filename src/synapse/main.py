@@ -221,6 +221,9 @@ def main():
                 train_file_paths, val_file_paths, test_file_paths,
                 _logger, run_info_str)
         #TODO: checkpoint loading support
+        #TODO: test only mode
+        #TODO: resume training support
+        #TODO: standalone onnx export support
 
 
 if __name__ == '__main__':
