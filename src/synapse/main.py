@@ -97,7 +97,6 @@ def train(model, model_config, data_config, run_config,
 
     if 'train' in run_config.run_mode:
         _logger.info("Running in training mode...")
-        data_module.setup('fit')
         trainer.fit(model=model, datamodule=data_module)
     if 'test' in run_config.run_mode:
         _logger.info("Running in test mode...")
