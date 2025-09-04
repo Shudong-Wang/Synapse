@@ -50,5 +50,5 @@ outlier_replacements:
   eta: [.nan, 0.0]
   phi: [.nan, 0.0]
   e: [.nan, 0.0]
-  m: [-2147483648.0, 0.0]
+  m: [.nan, 0.0]
   charge: [-2147483648, 0]

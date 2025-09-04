@@ -182,12 +182,12 @@ def main():
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
                 train(model, model_config, data_config, run_config,
                         file_paths, file_paths, file_paths,
-                        _logger, run_info_str, f"fold_{i}")
+                        _logger, run_info_str, f"{k_folds}fold_{i}")
         else: # very inflexible way, if no cross-validation variable is specified.
             _logger.info("No cross-validation variable specified.")
             _logger.info("Checking if all folds ('fold_X' in file name) are present in the dataset...")
             for i in range(k_folds):
-                if sum(f"fold_{i}" in file_path for file_path in file_paths) == 0:
+                if sum(f"{k_folds}fold_{i}" in file_path for file_path in file_paths) == 0:
                     raise RuntimeError(f"No file found for fold {i}")
             # Create a list of file paths for each fold
             for i in range(k_folds):
@@ -205,7 +205,7 @@ def main():
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
                 train(model, model_config, data_config, run_config,
                         train_file_paths, val_file_paths, test_file_paths,
-                        _logger, run_info_str, f"fold_{i}")
+                        _logger, run_info_str, f"{k_folds}fold_{i}")
     else:
         train_file_paths = []
         val_file_paths = []

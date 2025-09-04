@@ -18,7 +18,9 @@ val_sanity_check: false  # Set to true to run a 2 batch sanity check on validati
 
 cross_validation: true
 
-cross_validation_var: 'eventNumber'  # Variable for fold splitting, must be in the 'assistants' in data config
+# Variable for fold splitting, must be in the 'assistants' in data config
+# If not specified, will attempt to find files with f"{k_folds}fold_{i}" in their names
+cross_validation_var: 'eventNumber'
 
 k_folds: 3
 
