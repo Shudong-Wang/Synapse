@@ -2,6 +2,7 @@ import argparse
 import time
 import os
 import glob
+import random
 
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
@@ -40,11 +41,15 @@ def train(model, model_config, data_config, run_config,
 
     deterministic = False
     if run_config.seed:
-        L.seed_everything(run_config.seed, workers=True, verbose=False)
         _logger.info(f"Set random seed to {run_config.seed}")
+        L.seed_everything(run_config.seed, workers=True, verbose=False)
         deterministic = True
     else:
+        rnd_seed = random.randint(1, 65536)
         _logger.info("No random seed specified")
+        _logger.info(f"Set auto generated random seed to {rnd_seed}")
+        L.seed_everything(rnd_seed, workers=True, verbose=False)
+        deterministic = True
 
     data_module = DataModule(
         data_cfg=data_config,

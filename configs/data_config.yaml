@@ -66,6 +66,8 @@ spectators:
   - eventNumber
   - dsid
   - xgb_score
+  - weight
+  - abs_weight
 
 
 weights:
