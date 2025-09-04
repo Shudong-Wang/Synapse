@@ -61,6 +61,8 @@ labels:
     - label_signal
     - label_background
 
+assistants:
+  - eventNumber
 
 spectators:
   - eventNumber
