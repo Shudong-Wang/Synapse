@@ -113,3 +113,5 @@ def Ranger(params,
            ):
     radam = RAdam(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
     return Lookahead(radam, alpha, k)
+
+# TODO： add more optimizers, e.g. Adadelta, Muon, MuSGD, etc.
