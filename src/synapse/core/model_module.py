@@ -118,13 +118,15 @@ class ModelModule(L.LightningModule):
                 self.metrics[metric_name]['on_step'] = metric_fn_dict.get('on_step', False)
                 self.metrics[metric_name]['on_epoch'] = metric_fn_dict.get('on_epoch', True)
                 self.metrics[metric_name]['stages'] = metric_fn_dict.get('stages', ["train", "val", "test"])
-                self.metrics[metric_name]['is_reference'] = metric_fn_dict.get('is_reference', False)
+                # TODO: validate that metrics has 'is_monitor' must has 'mode' and its stages contains 'val'
+                self.metrics[metric_name]['is_monitor'] = metric_fn_dict.get('is_monitor', False)
+                self.metrics[metric_name]['mode'] = metric_fn_dict.get('mode')
 
         # TODO: move this validation to model_config validation
-        # validate is_reference flag is unique
-        is_reference_count = sum(1 for m in self.metrics.values() if m['is_reference'])
-        if is_reference_count > 1:
-            raise ValueError("Only one metric can be marked as reference (is_reference=True).")
+        # validate is_monitor flag is unique
+        is_monitor_count = sum(1 for m in self.metrics.values() if m['is_monitor'])
+        if is_monitor_count > 1:
+            raise ValueError("Only one metric can be marked as monitor (is_monitor=True).")
 
         self.step_outputs = {
             "train": [],
@@ -148,12 +150,12 @@ class ModelModule(L.LightningModule):
 
         loss = self.loss_fn(logits, *labels, weight = weight)
 
-        self.log(f"{stage}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         for metric_name, metric_fn_dict in self.metrics.items():
             if stage in metric_fn_dict["stages"] and metric_fn_dict["on_step"]:
                 metric = metric_fn_dict['fn'](logits, *labels, weight = weight)
                 if is_scalar(metric):
-                    self.log(f"{stage}/{metric_name}_step", metric, on_step=True, prog_bar=True, logger=True)
+                    self.log(f"{stage}_{metric_name}_step", metric, on_step=True, prog_bar=True, logger=True)
 
         self.step_outputs[stage].append(
             {
@@ -207,17 +209,12 @@ class ModelModule(L.LightningModule):
             all_labels.append(torch.cat([o["labels"][i] for o in outputs]))
         all_weights = torch.cat([o["weight"] for o in outputs])
 
-        ref_metric = self.trainer.callback_metrics.get(f"{stage}/loss_epoch")
-
         for metric_name, metric_fn_dict in self.metrics.items():
             if stage in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"]:
                 metric = metric_fn_dict['fn'](all_logits, *all_labels, weight=all_weights)
-                _logger.info(f"{stage}/{metric_name}_epoch: \n{metric}")
+                _logger.info(f"{stage}_{metric_name}_epoch: \n{metric}")
                 if is_scalar(metric):
-                    self.log(f"{stage}/{metric_name}_epoch", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-                if metric_fn_dict["is_reference"]:
-                    ref_metric = metric
-        # TODO: use ref_metric to determine the best model, move this logic to a separate callback
+                    self.log(f"{stage}_{metric_name}_epoch", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         self.step_outputs[stage].clear()
 

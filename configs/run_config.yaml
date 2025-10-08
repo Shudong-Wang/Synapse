@@ -31,6 +31,8 @@ logger_config:
 seed: 42 # Random seed for reproducibility
 use_amp: false # Use Automatic Mixed Precision (AMP) for training
 
+checkpoint_dir: 'checkpoints'
+
 test_output: 'test_output/output_{auto}.root'  # Path to save test output file
 
 #onnx_path: 'onnx_model/model_{auto}.onnx'  # Path to save ONNX model file after test

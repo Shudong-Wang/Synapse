@@ -51,7 +51,8 @@ metrics:
   Accuracy:
     function: synapse.core.metrics.weighted_accuracy
     stages: ['train', 'val', 'test']
-    is_reference: True
+    is_monitor: True
+    mode: max                         # must be one of {min, max}
     on_step: true
     on_epoch: true
   AUC:
