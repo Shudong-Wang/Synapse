@@ -31,7 +31,7 @@ safe_builtins = {
     "all": ak.all,
     "len": len,
     "array": _array,
-}  # TODO: add more functions if needed
+}
 
 supported_modules = {
     "ak": ak,
@@ -123,7 +123,6 @@ def extract_fields_from_expr(expr: str) -> set:
         set: Set of potential field names in the expression
     """
     # Filter out Python keywords and known safe functions and modules
-    # FIXME: sooo ugly, how to improve this?
     python_keywords = {
         'and', 'or', 'not', 'if', 'else', 'for',
         'in', 'True', 'False', 'None'
