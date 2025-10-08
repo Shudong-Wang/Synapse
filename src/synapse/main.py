@@ -64,15 +64,16 @@ def train(model, model_config, data_config, run_config,
 
     trainer_callbacks = []
     # save checkpoint every epoch
-    checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
-    every_epoch_checkpoint = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        filename="model_epoch={epoch}",
-        save_top_k=1,
-        every_n_epochs=1,
-        save_on_train_epoch_end=False
-    )
-    trainer_callbacks.append(every_epoch_checkpoint)
+    if run_config.checkpoint_dir:
+        checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
+        every_epoch_checkpoint = ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            filename="model_epoch={epoch}",
+            save_top_k=1,
+            every_n_epochs=1,
+            save_on_train_epoch_end=False
+        )
+        trainer_callbacks.append(every_epoch_checkpoint)
     # save the best checkpoint according to monitored metric
     monitor_metric_name = ''
     for metric_name, metric_fn_dict in model.metrics.items():
@@ -91,7 +92,7 @@ def train(model, model_config, data_config, run_config,
         )
         trainer_callbacks.append(best_model_checkpoint)
 
-    if run_config.get("test_output"):
+    if run_config.test_output:
         test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str, path_suffix)
         test_output_callback = SaveTestOutputs(
             data_cfg=data_config,
@@ -101,7 +102,7 @@ def train(model, model_config, data_config, run_config,
         )
         trainer_callbacks.append(test_output_callback)
 
-    if run_config.get("onnx_path"):
+    if run_config.onnx_path:
         onnx_path = update_file_path(run_config.run_dir, run_config.onnx_path, run_info_str, path_suffix)
         onnx_callback = SaveONNX(
             data_cfg=data_config,
@@ -119,7 +120,7 @@ def train(model, model_config, data_config, run_config,
         deterministic=deterministic,
         num_sanity_val_steps=2 if run_config.val_sanity_check else 0,
         default_root_dir=run_config.run_dir,
-        enable_checkpointing=True,
+        enable_checkpointing=bool(run_config.checkpoint_dir),
         max_epochs=run_config.epochs,
         logger=tb_logger,
         precision= '16-mixed' if run_config.use_amp else '32-true',
@@ -189,7 +190,6 @@ def main():
     )
 
     if run_config.cross_validation:
-        # TODO: modify the model checkpoint name, etc., according to fold number
         _logger.info("Cross validation: ON")
         if run_config.k_folds is None:
             raise ValueError("k_folds is not specified in run configuration, cannot perform cross-validation.")

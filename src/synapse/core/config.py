@@ -397,6 +397,7 @@ class RunConfig(ConfigBase):
         'logger_config': dict,
         'seed': (int, NoneType),
         'use_amp': bool,
+        'checkpoint_dir': (str, NoneType),
         'test_output': (str, NoneType),
         'export_onnx': (str, NoneType),
     }
@@ -427,6 +428,7 @@ class RunConfig(ConfigBase):
         self._data.setdefault('k_folds', None)
         self._data.setdefault('seed', None)
         self._data.setdefault('use_amp', False)
+        self._data.setdefault('checkpoint_dir', None)
         self._data.setdefault('test_output', None)
         self._data.setdefault('export_onnx', None)
 
