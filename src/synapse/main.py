@@ -5,6 +5,7 @@ import glob
 import random
 
 import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from synapse.core.config import ConfigManager
@@ -62,6 +63,34 @@ def train(model, model_config, data_config, run_config,
     tb_logger = TensorBoardLogger(save_dir=run_config.run_dir, name=f"TensorBoardLogs_{run_info_str}")
 
     trainer_callbacks = []
+    # save checkpoint every epoch
+    checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
+    every_epoch_checkpoint = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="model_epoch={epoch}",
+        save_top_k=1,
+        every_n_epochs=1,
+        save_on_train_epoch_end=False
+    )
+    trainer_callbacks.append(every_epoch_checkpoint)
+    # save the best checkpoint according to monitored metric
+    monitor_metric_name = ''
+    for metric_name, metric_fn_dict in model.metrics.items():
+        if 'val' in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"] and metric_fn_dict["is_monitor"]:
+            monitor_metric_name = f"val_{metric_name}_epoch"
+            monitor_metric_mode = metric_fn_dict["mode"]
+    if monitor_metric_name:
+        best_model_checkpoint = ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
+            monitor=monitor_metric_name,
+            mode=monitor_metric_mode,
+            save_top_k=1,
+            every_n_epochs=1,
+            save_on_train_epoch_end=False
+        )
+        trainer_callbacks.append(best_model_checkpoint)
+
     if run_config.get("test_output"):
         test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str, path_suffix)
         test_output_callback = SaveTestOutputs(
