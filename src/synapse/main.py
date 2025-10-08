@@ -111,7 +111,6 @@ def train(model, model_config, data_config, run_config,
             onnx_path=onnx_path
         )
         trainer_callbacks.append(onnx_callback)
-    # TODO: customized checkpoint callback (save ckpt to another place, not tb logger dir)
     # TODO: model_summary callback.
 
     trainer = L.Trainer(
