@@ -112,7 +112,6 @@ def train(model, model_config, data_config, run_config,
             onnx_path=onnx_path
         )
         trainer_callbacks.append(onnx_callback)
-    # TODO: model_summary callback.
 
     trainer = L.Trainer(
         accelerator=run_config.device,
