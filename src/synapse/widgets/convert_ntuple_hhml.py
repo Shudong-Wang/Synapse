@@ -55,6 +55,7 @@ def convert(input_data: ak.Array, cfg: dict):
     memory_limit = int(psutil.virtual_memory().available * 0.5)
     object_names = cfg.get('object_names', [])
     object_variables = cfg.get('object_variables', [])
+    event_variables = cfg.get('event_variables', [])
     sample_size = min(1000, len(input_data))
     sample_data = input_data[:sample_size]
     total_size = 0
@@ -64,6 +65,10 @@ def convert(input_data: ak.Array, cfg: dict):
         arrays = [sample_data[f"{obj_name}_{feat}"] for obj_name in object_names]
         concatenated = ak.concatenate([arr[:, None] for arr in arrays], axis=1)
         total_size += concatenated.nbytes
+    for feat in event_variables:
+        total_size += sample_data[feat].nbytes
+    if total_size == 0:
+        raise ValueError("Estimated total size is zero, cannot proceed with conversion.")
     avg_row_size = total_size / sample_size
     chunk_size = max(1, int(memory_limit / avg_row_size))
 
