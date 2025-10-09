@@ -1,0 +1,13 @@
+This project contains a modified version of Lightning AI's ModelSummary implementation
+Original code copyright © [2025] Lightning AI team, licensed under Apache License 2.0
+Modified code remains under Apache License 2.0
+
+Modifications copyright © [2025] [Shudong Wang]
+The remainder of the project is licensed under MIT License
+
+Included third-party code:
+- Lightning AI ModelSummary (modified)
+  Source: https://github.com/Lightning-AI/pytorch-lightning/
+  Modifications:
+    - Changed logging to use "SynapseLogger" instead of the default logger.
+  License: Apache License 2.0 (see LICENSES/APACHE-2.0.txt)
