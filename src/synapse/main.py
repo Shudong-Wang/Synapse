@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 
 from synapse.core.config import ConfigManager
 from synapse.core.logger import EnhancedLogger
-from synapse.core.callbacks import SaveTestOutputs, SaveONNX
+from synapse.core.callbacks import ModelSummary, SaveTestOutputs, SaveONNX
 from synapse.core.model_module import ModelModule
 from synapse.core.data_module import DataModule
 
@@ -62,7 +62,7 @@ def train(model, model_config, data_config, run_config,
 
     tb_logger = TensorBoardLogger(save_dir=run_config.run_dir, name=f"TensorBoardLogs_{run_info_str}")
 
-    trainer_callbacks = []
+    trainer_callbacks = [ModelSummary(max_depth=1)]
     # save checkpoint every epoch
     if run_config.checkpoint_dir:
         checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
@@ -124,7 +124,7 @@ def train(model, model_config, data_config, run_config,
         logger=tb_logger,
         precision= '16-mixed' if run_config.use_amp else '32-true',
         enable_progress_bar=True,
-        enable_model_summary=True,
+        enable_model_summary=False,
         inference_mode=True,
         callbacks= trainer_callbacks,
     )
