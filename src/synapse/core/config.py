@@ -399,6 +399,7 @@ class RunConfig(ConfigBase):
         'use_amp': bool,
         'checkpoint_dir': (str, NoneType),
         'test_output': (str, NoneType),
+        'onnx_path': (str, NoneType),
         'export_onnx': (str, NoneType),
     }
 
@@ -430,6 +431,7 @@ class RunConfig(ConfigBase):
         self._data.setdefault('use_amp', False)
         self._data.setdefault('checkpoint_dir', None)
         self._data.setdefault('test_output', None)
+        self._data.setdefault('onnx_path', None)
         self._data.setdefault('export_onnx', None)
 
         # Validate values
