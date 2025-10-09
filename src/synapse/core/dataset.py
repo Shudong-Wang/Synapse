@@ -49,6 +49,7 @@ def prepare_data(data: ak.Array, data_cfg: DataConfig, dataset_type: str) -> dic
 
     return prepared_data
 
+# TODO: implement a hybrid dataset that combines map-style and iterable-style datasets or simply an iterable dataset
 # class HybridDataset(IterableDataset):
 #     def __init__(self, file_list):
 #         self.file_list = file_list
