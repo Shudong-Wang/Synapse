@@ -70,7 +70,7 @@ def train(model, model_config, data_config, run_config,
         every_epoch_checkpoint = ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename="model_epoch={epoch}",
-            save_top_k=1,
+            save_top_k=-1,
             every_n_epochs=1,
             save_on_train_epoch_end=False
         )
