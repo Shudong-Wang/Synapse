@@ -176,17 +176,32 @@ def main():
     if logger_config.get('debug_file'):
         _logger.debug("Writing debug logs to file: %s", logger_config['debug_file'])
 
-    model = ModelModule(
-        run_cfg=run_config,
-        model_class=model_config.model,
-        model_params=model_config.model_params,
-        loss_fn=model_config.loss_function['name'],
-        loss_params=model_config.loss_function['params'],
-        optimizer=model_config.optimizer,
-        start_lr=model_config.start_lr,
-        lr_scheduler=model_config.lr_scheduler,
-        metrics=model_config.metrics,
-    )
+    if model_config.load_model is None:
+        model = ModelModule(
+            run_cfg=run_config,
+            model_class=model_config.model,
+            model_params=model_config.model_params,
+            loss_fn=model_config.loss_function['name'],
+            loss_params=model_config.loss_function['params'],
+            optimizer=model_config.optimizer,
+            start_lr=model_config.start_lr,
+            lr_scheduler=model_config.lr_scheduler,
+            metrics=model_config.metrics,
+        )
+    else:
+        model = ModelModule.load_from_checkpoint(
+            model_config.load_model,
+            run_cfg=run_config,
+            model_class=model_config.model,
+            model_params=model_config.model_params,
+            loss_fn=model_config.loss_function['name'],
+            loss_params=model_config.loss_function['params'],
+            optimizer=model_config.optimizer,
+            start_lr=model_config.start_lr,
+            lr_scheduler=model_config.lr_scheduler,
+            metrics=model_config.metrics,
+            load_model=model_config.load_model,
+        )
 
     if run_config.cross_validation:
         _logger.info("Cross validation: ON")

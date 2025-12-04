@@ -25,7 +25,7 @@ model_params:
   trim: True
   for_inference: False
 
-load_model:
+load_model: # path_to_the_ckpt
 
 training_step_function:
 
