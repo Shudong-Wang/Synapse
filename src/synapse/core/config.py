@@ -394,6 +394,7 @@ class RunConfig(ConfigBase):
         'cross_validation': (bool, NoneType),
         'cross_validation_var': (str, NoneType),
         'k_folds': (int, NoneType),
+        'run_folds': (list, NoneType),
         'logger_config': dict,
         'seed': (int, NoneType),
         'use_amp': bool,
@@ -427,6 +428,7 @@ class RunConfig(ConfigBase):
         self._data.setdefault('cross_validation', None)
         self._data.setdefault('cross_validation_var', None)
         self._data.setdefault('k_folds', None)
+        self._data.setdefault('run_folds', None)
         self._data.setdefault('seed', None)
         self._data.setdefault('use_amp', False)
         self._data.setdefault('checkpoint_dir', None)

@@ -193,6 +193,9 @@ def main():
         if run_config.k_folds is None:
             raise ValueError("k_folds is not specified in run configuration, cannot perform cross-validation.")
         k_folds = run_config.k_folds
+        run_folds = run_config.run_folds
+        if run_folds is None:
+            run_folds = list(range(run_config.k_folds))
         _logger.info("Cross-validation with %d folds.", k_folds)
         _logger.info("Train/Val/Test files will be merged into a single list then split into folds...")
         file_paths = []
@@ -207,7 +210,7 @@ def main():
                 base_selection = f"({data_config.selection}) & "
             else:
                 base_selection = ""
-            for i in range(k_folds):
+            for i in run_folds:
                 data_config.train_selection = (f"{base_selection}({cv_var}%{k_folds} != {i}) & "
                                                 f"({cv_var}%{k_folds} != {(i+1)%k_folds})")
                 data_config.val_selection = f"{base_selection}({cv_var}%{k_folds} == {(i+1)%k_folds})"
@@ -223,7 +226,7 @@ def main():
                 if sum(f"{k_folds}fold_{i}" in file_path for file_path in file_paths) == 0:
                     raise RuntimeError(f"No file found for fold {i}")
             # Create a list of file paths for each fold
-            for i in range(k_folds):
+            for i in run_folds:
                 train_file_paths = []
                 val_file_paths = []
                 test_file_paths = []

@@ -23,6 +23,7 @@ cross_validation: true
 cross_validation_var: 'eventNumber'
 
 k_folds: 3
+run_folds: [0, 1, 2] # if none, all folds will be looped
 
 logger_config:
   enable_stdout: true # Enable logging to stdout
