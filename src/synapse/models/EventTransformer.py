@@ -4,12 +4,12 @@ import torch.nn as nn
 from .Transformer import TransformerEncoderLayer, TransformerEncoder
 
 class EventTransformer(nn.Module):
-    def __init__(self, num_particles=128, embed_dim=128, global_dim=10,
+    def __init__(self, num_particles=10, embed_dim=128, global_dim=10,
                  transformer_dim=32, num_heads=4, num_layers=2, dropout=0.05):
         super().__init__()
         # Combine x and v into a single per-particle feature vector
         self.input_proj = nn.Sequential(
-            nn.Linear(5 + 4, embed_dim),  # (features + 4-momenta)
+            nn.Linear(8 + 4, embed_dim),  # (features + 4-momenta)
             nn.LayerNorm(embed_dim),
             nn.ReLU(),
             nn.Dropout(dropout)
@@ -20,14 +20,18 @@ class EventTransformer(nn.Module):
 
         self.global_proj = nn.Sequential(
             nn.BatchNorm1d(global_dim),
-            nn.Linear(global_dim, embed_dim),
+            nn.Linear(global_dim, embed_dim*2),
             nn.ReLU(),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim*2, embed_dim),
+            nn.ReLU(),
         )
 
         # Transformer encoder
         encoder_layer = TransformerEncoderLayer(
-            d_model=embed_dim,
+            # d_model=embed_dim,
+            # new!
+            d_model=2*embed_dim,
             nhead=num_heads,
             # batch_first=True,  # Input: (batch, seq, feature)
             norm_first=True
@@ -42,11 +46,18 @@ class EventTransformer(nn.Module):
 
         # Final classifier MLP
         self.classifier = nn.Sequential(
-            nn.Linear(embed_dim + embed_dim, 32),
-            nn.BatchNorm1d(32),
+            # nn.Linear(embed_dim + embed_dim, 64),
+            # new!
+            nn.Linear(2*embed_dim + embed_dim, 64),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(32, 2),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(16, 2),
         )
 
     def forward(self, x, g, v, mask):
@@ -58,10 +69,17 @@ class EventTransformer(nn.Module):
         inp = torch.cat([x, v], dim=-1)  # (N, P, 10)
         inp = self.input_proj(inp)  # (N, P, d)
 
+        # Normalize global features
+        g = self.global_proj(g)
+
         # Add position embedding
         pos_ids = torch.arange(P, device=x.device).unsqueeze(0).expand(N, P)  # (N, P)
         pos_emb = self.position_embedding(pos_ids)  # (N, P, embed_dim)
         inp = inp + pos_emb
+
+        # new!
+        # concatenate global features
+        inp = torch.cat([inp, g.unsqueeze(1).expand(-1, P, -1)], dim=-1)
 
         # Prepare mask for transformer: True for padding (so invert mask)
         # mask: (N, 1, P) -> (N, P)
@@ -73,9 +91,6 @@ class EventTransformer(nn.Module):
         masked_sum = torch.sum(transformer_out * mask_float.unsqueeze(-1), dim=1)
         num_real = torch.sum(mask_float, dim=1, keepdim=True) + 1e-6
         pooled = masked_sum / num_real  # (N, d)
-
-        # Normalize global features
-        g = self.global_proj(g)
 
         # Concatenate pooled per-particle features and global features
         features = torch.cat([pooled, g], dim=1)  # (N, d + global_dim)
