@@ -112,7 +112,7 @@ class SaveONNX(L.Callback):
             if feat_name == "evt_feats":
                 feat_shape = (1, len(feat_list)) # e.g. (1, 10) for 10 event features
             else:
-                feat_shape = (1, len(feat_list), 1) # e.g. (1, 6, 1) for 6 features per particle
+                feat_shape = (1, len(feat_list), 6) # e.g. (1, x, 6) for x features per particle. Hardcoded 6 for now.
             dummy_input.append(torch.randn(feat_shape, dtype=torch.float32))
         dummy_input = tuple(dummy_input)
 
