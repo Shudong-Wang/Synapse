@@ -10,6 +10,29 @@ def weighted_accuracy(logits: torch.Tensor, true: torch.Tensor, weight: torch.Te
     weighted_correct = correct * weight
     return torch.sum(weighted_correct) / torch.sum(weight)
 
+def weighted_CE_loss(logits: torch.Tensor, true: torch.Tensor, weight: torch.Tensor):
+    """Compute weighted cross-entropy loss."""
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    losses = criterion(logits, true)
+    weighted_losses = losses * weight
+    return torch.sum(weighted_losses) / torch.sum(weight)
+
+def tpr_at_1eminus3_fpr(logits: torch.Tensor, true: torch.Tensor, weight: torch.Tensor):
+    """Compute TPR at FPR = 0.001 using weighted ROC curve."""
+    score = torch.softmax(logits, dim=1).numpy(force=True)
+    true = true.numpy(force=True)
+    weight = weight.numpy(force=True)
+    # Use the second column as the positive class score
+    pred = score[:, 1]
+    fpr, tpr, thresholds = metrics.roc_curve(true, pred, sample_weight=weight)
+    # Find TPR at FPR closest to 0.001
+    target_fpr = 0.001
+    idx = np.searchsorted(fpr, target_fpr, side='right') - 1
+    if idx < 0:
+        return 0.0
+    else:
+        return tpr[idx]
+
 # def weighted_auc_2cls(logits: torch.Tensor, true: torch.Tensor,  weight: torch.Tensor):
 #     """Compute weighted ROC curve accounting for negative weights."""
 #     score = torch.softmax(logits, dim=1).numpy(force=True)
