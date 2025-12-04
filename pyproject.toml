@@ -29,6 +29,7 @@ dependencies = [
     "scikit-learn~=1.7.0",
     "onnx~=1.18.0",
     "psutil>=7.0.0"
+    "matplotlib~=3.10.7"
 ]
 
 [project.entry-points.console_scripts]
