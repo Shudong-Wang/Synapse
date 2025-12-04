@@ -7,4 +7,4 @@ class CrossEntropyLossWeighted(torch.nn.Module):
 
     def forward(self, pred, target, weight):
         ce_loss=self.ce_loss(pred, target)
-        return torch.mean(ce_loss*weight)
+        return (ce_loss*weight).sum() / weight.sum()
