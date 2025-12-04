@@ -4,8 +4,8 @@ import torch.nn as nn
 from .Transformer import TransformerEncoderLayer, TransformerEncoder
 
 class EventTransformer(nn.Module):
-    def __init__(self, num_particles=10, embed_dim=128, global_dim=10,
-                 transformer_dim=32, num_heads=4, num_layers=2, dropout=0.05):
+    def __init__(self, num_particles=10, embed_dim=128, global_dim=10, transformer_dim=32,
+                 num_heads=4, num_layers=2, dropout=0.05, **kwargs):
         super().__init__()
         # Combine x and v into a single per-particle feature vector
         self.input_proj = nn.Sequential(

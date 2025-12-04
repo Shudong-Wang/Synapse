@@ -3,6 +3,7 @@ import time
 import os
 import glob
 import random
+import copy
 
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -129,10 +130,28 @@ def train(model, model_config, data_config, run_config,
         callbacks= trainer_callbacks,
     )
 
+    best_model_checkpoint = model_config.load_model
     if 'train' in run_config.run_mode:
         _logger.info("Running in training mode...")
         trainer.fit(model=model, datamodule=data_module)
+        best_model_checkpoint = trainer.checkpoint_callback.best_model_path
     if 'test' in run_config.run_mode:
+        model_params = copy.deepcopy(model_config.model_params)
+        # Set for_inference to True to enable ONNX transformation for ParT
+        model_params['for_inference'] = True
+        model = ModelModule.load_from_checkpoint(
+            best_model_checkpoint,
+            run_cfg=run_config,
+            model_class=model_config.model,
+            model_params=model_params,
+            loss_fn=model_config.loss_function['name'],
+            loss_params=model_config.loss_function['params'],
+            optimizer=model_config.optimizer,
+            start_lr=model_config.start_lr,
+            lr_scheduler=model_config.lr_scheduler,
+            metrics=model_config.metrics,
+            load_model=model_config.load_model,
+        )
         _logger.info("Running in test mode...")
         trainer.test(model=model, datamodule=data_module)
 
