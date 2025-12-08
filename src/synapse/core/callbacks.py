@@ -108,6 +108,9 @@ class SaveONNX(L.Callback):
         dummy_input = []
 
         for feat_name, feat_list in self.data_cfg.inputs.items():
+            # temporary hack
+            if "object_label" == feat_name or "aux_task" == feat_name:
+                continue
             feat_shape = None
             if feat_name == "evt_feats":
                 feat_shape = (1, len(feat_list)) # e.g. (1, 10) for 10 event features

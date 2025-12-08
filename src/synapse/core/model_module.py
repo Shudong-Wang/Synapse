@@ -142,13 +142,46 @@ class ModelModule(L.LightningModule):
 
     def _shared_default_step(self, batch: Any, stage: str):
         x, y, w, s = batch
+        object_label = x.get('object_label', None)
+        object_mask = x['mask']
+        if object_label is not None:
+            x.pop('object_label')
+        aux_task = x.get('aux_task', None)
+        if aux_task is not None:
+            x.pop('aux_task')
+
+
         inputs = [x[k] for k in x.keys()]
         labels = [y[k] for k in y.keys()]
         weight = [w[k] for k in w.keys()][0]
 
         logits = self(*inputs)
+        if aux_task is not None:
+            logits, logits_aux, obj_logits = logits
+        elif object_label is not None:
+            logits, obj_logits = logits
 
         loss = self.loss_fn(logits, *labels, weight = weight)
+
+        if object_label is not None:
+            self.model.num_obj_classes = 4  # Ensure the model has the attribute num_obj_classes
+            self.loss_object_classification = torch.nn.CrossEntropyLoss(reduction='none')
+            # # nan to zero in object_label
+            # label in long
+            object_label = object_label.long()
+            obj_loss = self.loss_object_classification(obj_logits.view(-1, self.model.num_obj_classes), object_label.view(-1))
+            obj_loss = (obj_loss * object_mask.view(-1)).sum() / object_mask.sum()
+            self.log(f"{stage}_obj_loss", obj_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log(f"{stage}_event_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            loss = loss + obj_loss.mean() * 0.1
+        if aux_task is not None:
+            loss_aux_classification = torch.nn.CrossEntropyLoss(reduction='none')
+            label_for_aux = aux_task[:,0].long()
+            weight_for_aux = aux_task[:,1]
+            aux_loss = loss_aux_classification(logits_aux, label_for_aux)
+            aux_loss = (aux_loss * weight_for_aux).sum() / weight_for_aux.sum()
+            self.log(f"{stage}_aux_loss", aux_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            loss = loss + aux_loss * 0.1
 
         self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         for metric_name, metric_fn_dict in self.metrics.items():
@@ -254,7 +287,7 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
-                    "frequency": 1
+                    "frequency": 3
                 }
             elif lr_scheduler_type == "cosine":
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -262,7 +295,7 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
-                    "frequency": 1
+                    "frequency": 3
                 }
             elif lr_scheduler_type == "one-cycle":
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -271,7 +304,7 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "step",
-                    "frequency": 1
+                    "frequency": 3
                 }
 
 

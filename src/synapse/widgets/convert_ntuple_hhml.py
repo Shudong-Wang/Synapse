@@ -89,6 +89,18 @@ def convert(input_data: ak.Array, cfg: dict):
             feat_data = []
             for i in range(0, len(input_data), chunk_size):
                 chunk_data = input_data[i:i + chunk_size]
+                # arrays = []
+                # if 'is' in feat:
+                #     for obj_name in object_names:
+                #         if feat=='isJet' and 'j' in obj_name:
+                #             to_insert = ak.ones_like(chunk_data[f"{obj_name}_{feat}"])
+                #         elif feat=='isMET' and 'met' in obj_name:
+                #             to_insert = ak.ones_like(chunk_data[f"{obj_name}_{feat}"])
+                #         else:
+                #             to_insert = ak.zeros_like(chunk_data[f"{obj_name}_{feat}"])
+                #         arrays.append(to_insert)
+                # else:
+                #     arrays = [chunk_data[f"{obj_name}_{feat}"] for obj_name in object_names]
                 arrays = [chunk_data[f"{obj_name}_{feat}"] for obj_name in object_names]
                 concatenated = ak.concatenate([arr[:, None] for arr in arrays], axis=1)
                 feat_data.append(concatenated)
@@ -107,6 +119,12 @@ def convert(input_data: ak.Array, cfg: dict):
             output_data = build_new_variables(output_data, cfg.get('new_variables'))
             pbar.update(1)  # Update progress bar for new variables
 
+    # redefine "partOrigin" to set 3,4,5 to 3
+    output_data["partOrigin"] = ak.where(
+        (output_data["partOrigin"]>=3) & (output_data["partOrigin"]<=5),
+        3,
+        output_data["partOrigin"]
+    )
     for field, value_pair in cfg.get('outlier_replacements', {}).items():
         if field in output_data.fields:
             if math.isnan(value_pair[0]):

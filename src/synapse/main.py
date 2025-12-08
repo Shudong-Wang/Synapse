@@ -195,6 +195,10 @@ def main():
     if logger_config.get('debug_file'):
         _logger.debug("Writing debug logs to file: %s", logger_config['debug_file'])
 
+    model_config.load_model = run_config.load_model
+    print(f"=====================================================")
+    print(f"Model load path: {model_config.load_model}")
+    print(f"=====================================================")
     if model_config.load_model is None:
         model = ModelModule(
             run_cfg=run_config,
@@ -208,6 +212,7 @@ def main():
             metrics=model_config.metrics,
         )
     else:
+        print(f"Loading model from checkpoint: {model_config.load_model}")
         model = ModelModule.load_from_checkpoint(
             model_config.load_model,
             run_cfg=run_config,

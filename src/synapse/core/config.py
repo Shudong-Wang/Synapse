@@ -386,6 +386,7 @@ class RunConfig(ConfigBase):
         'run_mode': list,
         'device': str,
         'n_devices': (int, list, str),
+        'load_model': (str, NoneType),
         'epochs': int,
         'start_epoch': int,
         'batch_size': int,
@@ -435,6 +436,7 @@ class RunConfig(ConfigBase):
         self._data.setdefault('test_output', None)
         self._data.setdefault('onnx_path', None)
         self._data.setdefault('export_onnx', None)
+        self._data.setdefault('load_model', None)
 
         # Validate values
         if self._data['epochs'] < 1:

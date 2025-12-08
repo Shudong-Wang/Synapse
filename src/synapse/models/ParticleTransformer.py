@@ -747,6 +747,23 @@ class ParticleTransformerGlobalFeat(nn.Module):
         else:
             self.fc = None
 
+        # fc for object classification 
+        self.num_obj_classes = 4 # hardcoded for now:  0 for others, 1 for higgs, 2 for top, 3 for z, w, diboson
+        self.obj_fc = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim//2),
+            nn.ReLU(),
+            nn.Linear(embed_dim//2, embed_dim//4),
+            nn.ReLU(),
+            nn.Linear(embed_dim//4, self.num_obj_classes)
+        )
+        self.fc_for_aux = nn.Sequential(
+            nn.Linear(embed_dim*2, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim//2),
+            nn.ReLU(),
+            nn.Linear(embed_dim//2, 3)
+        )
+
         # init
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim), requires_grad=True)
         trunc_normal_(self.cls_token, std=.02)
@@ -795,10 +812,14 @@ class ParticleTransformerGlobalFeat(nn.Module):
             if self.fc is None:
                 return x_cls
             output = self.fc(x_cls)
-            if self.for_inference:
-                output = torch.softmax(output, dim=1)
+            # object output: classification for each particle
+            obj_output = self.obj_fc(x.permute(1,0,2).contiguous().view(-1, x.size(2))) # (N*P, num_obj_classes)
+            # if self.for_inference:
+            #     output = torch.softmax(output, dim=1)
+            #     return output
             # print('output:\n', output)
-            return output
-
+            output_for_aux = self.fc_for_aux(x_cls)
+            return output, output_for_aux, obj_output
+            # return output
 
 
