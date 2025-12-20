@@ -26,13 +26,13 @@ def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: st
             updated_file_path = os.path.join(run_dir, file_path)
     else:
         updated_file_path = os.path.join(run_dir, file_path)
-    os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
     if suffix:
         suffix = f"_{suffix}"
     if '{auto}' in updated_file_path:
         if replace_auto == "":
             replace_auto = time.strftime('%Y%m%d_%H%M%S')
         updated_file_path = updated_file_path.replace('{auto}', replace_auto + f'{suffix}')
+    os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
     return updated_file_path
 
 def train(model, model_config, data_config, run_config,
