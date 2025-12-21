@@ -156,10 +156,7 @@ class ModelModule(L.LightningModule):
         weight = [w[k] for k in w.keys()][0]
 
         logits = self(*inputs)
-        if aux_task is not None:
-            logits, logits_aux, obj_logits = logits
-        elif object_label is not None:
-            logits, obj_logits = logits
+        logits, logits_aux, obj_logits = logits
 
         loss = self.loss_fn(logits, *labels, weight = weight)
 

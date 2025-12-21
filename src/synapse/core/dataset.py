@@ -3,6 +3,7 @@ import logging
 
 import awkward as ak
 import numpy as np
+import torch
 from torch.utils.data import Dataset, IterableDataset
 
 from .tools import apply_selection, build_new_variables, extract_fields_from_expr
@@ -83,6 +84,37 @@ class MapStyleDataset(Dataset):
         if len(set(lengths)) != 1:
             raise ValueError("All feature arrays must have the same length")
         self.num_samples = lengths[0]
+
+    def get_input_norm_dict(self):
+        # (num_samples, num_evt_feats)
+        ary_evt_feats = torch.tensor(self.data.get('evt_feats'))
+        # (num_samples,)
+        weight_ary = torch.tensor(self.data.get(self.data_cfg.weight_key, np.ones(self.num_samples)))
+        # (num_samples, num_obj_feats, num_obj)
+        ary_obj_feats = torch.tensor(self.data.get('obj_feats'))
+        # (num_samples, 1, num_obj)
+        ary_mask = torch.tensor(self.data.get('mask'))
+
+        norm_dict = {}
+        # norm for evt_feats. Shape: (num_samples, num_evt_feats) -> (num_evt_feats,)
+        ary_evt_weights = weight_ary.unsqueeze(-1) # (num_samples, 1)
+        weighted_mean = torch.sum(ary_evt_feats * ary_evt_weights, dim=0) / torch.sum(ary_evt_weights)
+        weighted_std = torch.sqrt(torch.sum(ary_evt_weights * (ary_evt_feats - weighted_mean)**2, dim=0) / torch.sum(ary_evt_weights))
+        norm_dict['evt_feats'] = {'mean': weighted_mean, 'std': weighted_std.clip(min=1e-6)}
+
+
+        # norm for obj_feats. Shape: (num_samples, num_obj_feats, num_obj) -> (num_obj_feats,)
+        ary_obj_feats = ary_obj_feats.permute(0, 2, 1) # (num_samples, num_obj, num_obj_feats)
+        ary_obj_weights = ary_mask.view(ary_obj_feats.shape[0], -1) * weight_ary.unsqueeze(-1)  # (num_samples, num_obj)
+        ary_obj_weights = ary_obj_weights.unsqueeze(-1)
+        sum_weights = torch.sum(ary_obj_weights)
+        weighted_mean = torch.sum(ary_obj_feats * ary_obj_weights, dim=(0,1)) / sum_weights
+        weighted_std = torch.sqrt(torch.sum(ary_obj_weights * (ary_obj_feats - weighted_mean)**2, dim=(0,1)) / sum_weights)
+        norm_dict['obj_feats'] = {'mean': weighted_mean, 'std': weighted_std.clip(min=1e-6)}
+
+        return norm_dict
+
+
 
     def __len__(self):
         return self.num_samples

@@ -708,6 +708,12 @@ class ParticleTransformerGlobalFeat(nn.Module):
         self.trimmer = SequenceTrimmer(enabled=trim and not for_inference)
         self.for_inference = for_inference
         self.use_amp = use_amp
+        self.input_dim = input_dim
+        self.global_input_dim = global_input_dim
+        self.x_mean = None
+        self.x_std = None
+        self.g_mean = None
+        self.g_std = None
 
         embed_dim = embed_dims[-1] if len(embed_dims) > 0 else input_dim
         assert global_embed_dims[-1] == embed_dims[-1] if len(global_embed_dims) > 0 else input_dim, \
@@ -768,6 +774,30 @@ class ParticleTransformerGlobalFeat(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim), requires_grad=True)
         trunc_normal_(self.cls_token, std=.02)
 
+    def setup_input_norm(self, x_mean, x_std, g_mean, g_std):
+        """
+        Normalize the input features.
+        Parameters
+        ----------
+        x_mean
+        x_std
+        g_mean
+        g_std
+
+        Returns
+        -------
+
+        """
+        self.x_mean = x_mean.view(1, -1, 1)
+        self.x_std = x_std.view(1, -1, 1)
+        self.g_mean = g_mean.view(1, -1)
+        self.g_std = g_std.view(1, -1)
+
+        assert self.x_mean.shape[1] == self.x_std.shape[1] == self.input_dim, \
+            f'Input feature mean/std shape mismatch: {x_mean.shape[1]} vs {x_std.shape[1]} v.s {self.input_dim}'
+        assert self.g_mean.shape[-1] == self.g_std.shape[-1] == self.global_input_dim, \
+            f'Global feature mean/std shape mismatch: {g_mean.shape[-1]} vs {g_std.shape[-1]} v.s {self.global_input_dim}'
+
     @torch.jit.ignore
     def no_weight_decay(self):
         return {'cls_token', }
@@ -779,6 +809,10 @@ class ParticleTransformerGlobalFeat(nn.Module):
         # mask: (N, 1, P) -- real particle = 1, padded = 0
         # for pytorch: uu (N, C', num_pairs), uu_idx (N, 2, num_pairs)
         # for onnx: uu (N, C', P, P), uu_idx=None
+
+        # normalize input features
+        g = (g - self.g_mean.to(g.device)) / self.g_std.to(g.device)
+        x = (x - self.x_mean.to(x.device)) / self.x_std.to(x.device)
 
         with torch.no_grad():
             if not self.for_inference:

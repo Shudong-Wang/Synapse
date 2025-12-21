@@ -131,6 +131,18 @@ def train(model, model_config, data_config, run_config,
         callbacks= trainer_callbacks,
     )
 
+    # Get the mean and std of the training data for normalization
+    dict_input_norm = data_module.train_dataset.get_input_norm_dict()
+    try:
+        model.model.setup_input_norm(
+            x_mean = dict_input_norm['obj_feats']['mean'],
+            x_std = dict_input_norm['obj_feats']['std'],
+            g_mean = dict_input_norm['evt_feats']['mean'],
+            g_std = dict_input_norm['evt_feats']['std'],
+        )
+    except AttributeError:
+        _logger.warning("Model does not have 'setup_input_norm' method. Skipping input normalization setup.")
+
     best_model_checkpoint = model_config.load_model
     if 'train' in run_config.run_mode:
         _logger.info("Running in training mode...")
@@ -153,6 +165,16 @@ def train(model, model_config, data_config, run_config,
             metrics=model_config.metrics,
             load_model=model_config.load_model,
         )
+        # normalization setup for the loaded model
+        try:
+            model.model.setup_input_norm(
+                x_mean = dict_input_norm['obj_feats']['mean'],
+                x_std = dict_input_norm['obj_feats']['std'],
+                g_mean = dict_input_norm['evt_feats']['mean'],
+                g_std = dict_input_norm['evt_feats']['std'],
+            )
+        except AttributeError:
+            _logger.warning("Model does not have 'setup_input_norm' method. Skipping input normalization setup.")
         _logger.info("Running in test mode...")
         trainer.test(model=model, datamodule=data_module)
 

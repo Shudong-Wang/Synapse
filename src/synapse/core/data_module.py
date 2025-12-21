@@ -32,13 +32,15 @@ class DataModule(L.LightningDataModule):
             self.val_data_cfg.selection = data_cfg.val_selection
             self.test_data_cfg.selection = data_cfg.test_selection
 
+        # initialize train dataset here for input normalization calculation
+        self.train_dataset = MapStyleDataset(
+            self.train_file_list,
+            'train',
+            self.train_data_cfg
+        )
+
     def setup(self, stage: str | None = None):
         if stage == "fit" or stage is None:
-            self.train_dataset = MapStyleDataset(
-                self.train_file_list,
-                'train',
-                self.train_data_cfg
-            )
             self.val_dataset = MapStyleDataset(
                 self.val_file_list,
                 'val',
