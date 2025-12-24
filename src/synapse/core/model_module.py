@@ -160,25 +160,42 @@ class ModelModule(L.LightningModule):
 
         loss = self.loss_fn(logits, *labels, weight = weight)
 
-        if object_label is not None:
-            self.model.num_obj_classes = 4  # Ensure the model has the attribute num_obj_classes
-            self.loss_object_classification = torch.nn.CrossEntropyLoss(reduction='none')
-            # # nan to zero in object_label
-            # label in long
-            object_label = object_label.long()
-            obj_loss = self.loss_object_classification(obj_logits.view(-1, self.model.num_obj_classes), object_label.view(-1))
-            obj_loss = (obj_loss * object_mask.view(-1)).sum() / object_mask.sum()
-            self.log(f"{stage}_obj_loss", obj_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log(f"{stage}_event_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            loss = loss + obj_loss.mean() * 0.1
+        # if object_label is not None:
+        #     # self.model.num_obj_classes = 4  # Ensure the model has the attribute num_obj_classes
+        #     self.model.num_obj_classes = 2  # Ensure the model has the attribute num_obj_classes
+        #     self.loss_object_classification = torch.nn.CrossEntropyLoss(reduction='none')
+        #     # # nan to zero in object_label
+        #     # label in long
+        #     object_label = object_label.long()
+        #     obj_loss = self.loss_object_classification(obj_logits.view(-1, self.model.num_obj_classes), object_label.view(-1))
+        #     obj_loss = (obj_loss * object_mask.view(-1)).sum() / object_mask.sum()
+        #     self.log(f"{stage}_obj_loss", obj_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        #     self.log(f"{stage}_event_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        #     loss = loss + obj_loss.mean() * 0.05
         if aux_task is not None:
             loss_aux_classification = torch.nn.CrossEntropyLoss(reduction='none')
+            # first auxiliary task
             label_for_aux = aux_task[:,0].long()
             weight_for_aux = aux_task[:,1]
-            aux_loss = loss_aux_classification(logits_aux, label_for_aux)
+            preds = logits_aux[:, :2]
+            aux_loss = loss_aux_classification(preds, label_for_aux)
             aux_loss = (aux_loss * weight_for_aux).sum() / weight_for_aux.sum()
+            # second auxiliary task
+            label_for_aux2 = aux_task[:,2].long()
+            weight_for_aux2 = aux_task[:,3]
+            preds2 = logits_aux[:, 2:4]
+            aux_loss2 = loss_aux_classification(preds2, label_for_aux2)
+            aux_loss2 = (aux_loss2 * weight_for_aux2).sum() / weight_for_aux2.sum()
+            # # third auxiliary task
+            # label_for_aux3 = aux_task[:,4].long()
+            # weight_for_aux3 = aux_task[:,5]
+            # preds3 = logits_aux[:, 4:6]
+            # aux_loss3 = loss_aux_classification(preds3, label_for_aux3)
+            # aux_loss3 = (aux_loss3 * weight_for_aux3).sum() / weight_for_aux3.sum()
+
+            aux_loss = 5*aux_loss + 1*aux_loss2 # + 1./20*aux_loss3
             self.log(f"{stage}_aux_loss", aux_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            loss = loss + aux_loss * 0.1
+            loss = loss + aux_loss
 
         self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         for metric_name, metric_fn_dict in self.metrics.items():
@@ -284,7 +301,7 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
-                    "frequency": 3
+                    "frequency": 1
                 }
             elif lr_scheduler_type == "cosine":
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -292,16 +309,16 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
-                    "frequency": 3
+                    "frequency": 1
                 }
             elif lr_scheduler_type == "one-cycle":
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer, max_lr=lr, total_steps=self.run_cfg.epochs * self.run_cfg.batch_size,
-                    pct_start=0.3, anneal_strategy='linear', cycle_momentum=False, last_epoch=-1)
+                    optimizer, max_lr=lr, total_steps=self.run_cfg.epochs * 2600, # length of dataset / batch size. Hardcoded for now
+                    pct_start=0.1, anneal_strategy='cos', cycle_momentum=False, last_epoch=-1)
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "step",
-                    "frequency": 3
+                    "frequency": 1
                 }
 
 

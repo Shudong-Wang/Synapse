@@ -767,7 +767,14 @@ class ParticleTransformerGlobalFeat(nn.Module):
             nn.ReLU(),
             nn.Linear(embed_dim, embed_dim//2),
             nn.ReLU(),
-            nn.Linear(embed_dim//2, 3)
+            nn.Linear(embed_dim//2, 2)
+        )
+        self.fc_for_aux2 = nn.Sequential(
+            nn.Linear(embed_dim*2, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim//2),
+            nn.ReLU(),
+            nn.Linear(embed_dim//2, 2)
         )
 
         # init
@@ -853,6 +860,8 @@ class ParticleTransformerGlobalFeat(nn.Module):
             #     return output
             # print('output:\n', output)
             output_for_aux = self.fc_for_aux(x_cls)
+            output_for_aux2 = self.fc_for_aux2(x_cls)
+            output_for_aux = torch.cat((output_for_aux, output_for_aux2), dim=1)
             return output, output_for_aux, obj_output
             # return output
 
