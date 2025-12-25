@@ -861,7 +861,9 @@ class ParticleTransformerGlobalFeat(nn.Module):
             # print('output:\n', output)
             output_for_aux = self.fc_for_aux(x_cls)
             output_for_aux2 = self.fc_for_aux2(x_cls)
-            output_for_aux = torch.cat((output_for_aux, output_for_aux2), dim=1)
+            # output_for_aux = torch.cat((output_for_aux, output_for_aux2), dim=1)
+            # output = torch.cat((output, output_for_aux), dim=1)
+            output = torch.cat([output, output_for_aux, output_for_aux2], dim=1)
             return output, output_for_aux, obj_output
             # return output
 

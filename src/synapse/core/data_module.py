@@ -70,7 +70,7 @@ class DataModule(L.LightningDataModule):
             num_workers=min(self.run_cfg.num_workers, len(self.val_dataset)),
             pin_memory=True,
             persistent_workers=True,
-            shuffle = False,
+            shuffle = True,
         )
 
     def test_dataloader(self):

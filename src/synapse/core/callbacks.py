@@ -59,20 +59,26 @@ class SaveTestOutputs(L.Callback):
         Save the test outputs to a ROOT file.
         """
         output = {}
-        if "_class_label" in labels.keys():
-            for idx, label_name in enumerate(self.data_cfg.labels["categorical"]):
-                output[label_name] = labels["_class_label"] == idx
-                output[label_name + "_score"] = scores[:, idx]
-            labels.pop("_class_label")
+        output_names = self.model_cfg.get('output_names', [])
+        for idx, name in enumerate(output_names):
+            output[name] = scores[:, idx]
 
-        if len(labels.keys()) > 0:
-            if self.model_cfg.model_params.get("num_classes"):
-                n_classes = self.model_cfg.model_params["num_classes"]
-            else:
-                n_classes = len(self.data_cfg.labels.get("categorical",[]))
-            for idx, label_name in enumerate(self.data_cfg.labels["continuous"]):
-                output[label_name] = labels[label_name]
-                output[label_name + "_pred"] = scores[:, n_classes + idx]
+        for label_name in labels.keys():
+            output[label_name] = labels[label_name]
+        # if "_class_label" in labels.keys():
+        #     for idx, label_name in enumerate(self.data_cfg.labels["categorical"]):
+        #         output[label_name] = labels["_class_label"] == idx
+        #         output[label_name + "_score"] = scores[:, idx]
+        #     labels.pop("_class_label")
+
+        # if len(labels.keys()) > 0:
+        #     if self.model_cfg.model_params.get("num_classes"):
+        #         n_classes = self.model_cfg.model_params["num_classes"]
+        #     else:
+        #         n_classes = len(self.data_cfg.labels.get("categorical",[]))
+        #     for idx, label_name in enumerate(self.data_cfg.labels["continuous"]):
+        #         output[label_name] = labels[label_name]
+        #         output[label_name + "_pred"] = scores[:, n_classes + idx]
 
         if self.data_cfg.get('weights', {}).get('balance_weights', False):
             output["_balanced_weights"] = weights
@@ -109,7 +115,7 @@ class SaveONNX(L.Callback):
 
         for feat_name, feat_list in self.data_cfg.inputs.items():
             # temporary hack
-            if "object_label" == feat_name or "aux_task" == feat_name:
+            if "object_label" == feat_name or "aux_task" == feat_name or 'extra_event_info' == feat_name or 'extra_obj_info' == feat_name:
                 continue
             feat_shape = None
             if feat_name == "evt_feats":

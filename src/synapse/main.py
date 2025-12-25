@@ -69,7 +69,8 @@ def train(model, model_config, data_config, run_config,
     if run_config.checkpoint_dir:
         checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
         # save the best checkpoint according to monitored metric
-        monitor_metric_name = ''
+        monitor_metric_name = 'val_loss'
+        monitor_metric_mode = 'min'
         for metric_name, metric_fn_dict in model.metrics.items():
             if 'val' in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"] and metric_fn_dict["is_monitor"]:
                 monitor_metric_name = f"val_{metric_name}_epoch"
