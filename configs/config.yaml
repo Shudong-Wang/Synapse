@@ -1,0 +1,198 @@
+### data config
+data_cfg:
+  train_files:
+    - ./output/*/fold_0.root
+  
+  val_files:
+    - ./output/*/fold_1.root
+  
+  test_files:
+    - ./output/*/fold_2.root
+  
+  train_load_range: [0.0, 1.0]
+  train_normalized_range: true
+  val_load_range: [0.0, 1.0]
+  val_normalized_range: true
+  test_load_range: [0.0, 1.0]
+  test_normalized_range: true
+  
+  tree_name: sr
+  
+  new_variables:
+    log1p_pt: "np.log1p(pt)"
+    log1p_e: "np.log1p(e"
+    px: "pt * np.cos(phi)"
+    py: "pt * np.sin(phi)"
+    pz: "pt * np.sinh(eta)"
+    abs_weight: "np.abs(weight)"
+    log1p_HT_vis: "np.log1p(HT_vis)"
+    log1p_HT_lep: "np.log1p(HT_lep)"
+    log1p_HT_jet: "np.log1p(HT_jet)"
+    log1p_HT_lepMET: "np.log1p(HT_lepMET)"
+    log1p_m_all: "np.log1p(m_all)"
+  
+  
+  selection:
+  
+  inputs:
+    obj_feats:
+      - log1p_pt
+      - eta
+      - phi
+      - log1p_e
+      - pdg
+      - charge
+    evt_feats:
+      - log1p_HT_vis
+      - log1p_HT_lep
+      - log1p_HT_jet
+      - log1p_HT_lepMET
+      - log1p_m_all
+      - dilep_type
+    obj_4vecs:
+      - px
+      - py
+      - pz
+      - e
+    mask:
+      - valid
+  
+  
+  labels:
+    categorical:
+      - label_signal
+      - label_background
+  
+  assistants:
+    - eventNumber
+  
+  spectators:
+    - eventNumber
+    - dsid
+    - xgb_score
+    - weight
+    - abs_weight
+  
+  
+  weights:
+    balance_weights: true
+    weight_balance_factors:  # corresponds to the order of the categorical labels
+      - 1710.4
+      - 1.0
+    vars:
+      - abs_weight
+
+### model config
+model_cfg:
+  model: synapse.models.ParticleTransformer.ParticleTransformerGlobalFeat
+
+  model_params:
+    input_dim: 6
+    global_input_dim: 6
+    num_classes: 2
+    pair_input_dim: 4
+    use_pre_activation_pair: false
+    embed_dims: [ 32, 128, 32 ]
+    global_embed_dims: [ 32, 128, 32 ]
+    pair_embed_dims: [ 16, 16, 16 ]
+    num_heads: 2
+    num_layers: 2
+    num_cls_layers: 1
+    block_params: null
+    cls_block_params:
+      'dropout': 0
+      'attn_dropout': 0
+      'activation_dropout': 0
+    fc_params:
+      - [ 32,0 ]
+      - [ 128,0 ]
+      - [ 32,0 ]
+    activation: 'gelu'
+    trim: True
+    for_inference: False
+
+  load_model: # path_to_the_ckpt
+
+  training_step_function:
+
+  validation_step_function:
+
+  test_step_function:
+
+  loss_function:
+    name: synapse.loss_functions.loss.CrossEntropyLossWeighted
+    params:
+
+  start_lr: 0.001
+
+  optimizer: "Ranger"
+  #  name: AdamW
+  #  params:
+
+  lr_scheduler: "steps"
+  #  name: steps
+  #  params:
+
+  metrics:
+    Accuracy:
+      function: synapse.core.metrics.weighted_accuracy
+      stages: [ 'train', 'val', 'test' ]
+      is_monitor: True
+      mode: max                         # must be one of {min, max}
+      on_step: true
+      on_epoch: true
+    AUC:
+      function: synapse.core.metrics.weighted_auc
+      stages: [ 'val', 'test' ]
+      on_step: false
+      on_epoch: true
+    CM:
+      function: synapse.core.metrics.weighted_confusion_matrix
+      stages: [ 'val', 'test' ]
+      on_step: false
+      on_epoch: true
+
+### run config
+run_cfg:
+  run_dir: 'local_test/run_1'  # Directory to save the run outputs
+
+  run_mode: [ 'train', 'test' ]
+
+  device: 'gpu' # 'cpu' or 'gpu'
+
+  n_devices: 'auto'  # 'auto' for automatic detection, or specify a number
+
+  epochs: 3
+
+  start_epoch: 0
+
+  batch_size: 1024
+
+  num_workers: 5
+
+  val_sanity_check: false  # Set to true to run a 2 batch sanity check on validation data
+
+  cross_validation: true
+
+  # Variable for fold splitting, must be in the 'assistants' in data config
+  # If not specified, will attempt to find files with f"{k_folds}fold_{i}" in their names
+  cross_validation_var: 'eventNumber'
+
+  k_folds: 3
+  run_folds: [ 0, 1, 2 ] # if none, all folds will be looped
+
+  logger_config:
+    enable_stdout: true # Enable logging to stdout
+    log_file: 'logs/run_log_{auto}.log'
+
+  seed: 42 # Random seed for reproducibility
+  use_amp: false # Use Automatic Mixed Precision (AMP) for training
+
+  checkpoint_dir: 'checkpoints/{auto}/'
+  save_ckpt_each_epoch: true # Save checkpoint at the end of each epoch
+
+  test_output: 'test_output/output_{auto}.root'  # Path to save test output file
+
+  #onnx_path: 'onnx_model/model_{auto}.onnx'  # Path to save ONNX model file after test
+
+  # export_onnx: 'model.onnx' # not supported yet

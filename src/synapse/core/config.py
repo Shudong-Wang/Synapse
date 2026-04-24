@@ -420,18 +420,18 @@ class ConfigManager:
         self._cfg_file_path: str = cfg_file_path
         self.load(cfg_file_path)
 
-        self.data = DataConfig(self._data['data'])
-        self.model = ModelConfig(self._data['model'])
-        self.run = RunConfig(self._data['run'])
+        self.data = DataConfig(self._data['data_cfg'])
+        self.model = ModelConfig(self._data['model_cfg'])
+        self.run = RunConfig(self._data['run_cfg'])
 
     def to_dict(self) -> Dict[str, Dict[str, Any]]:
         """
         Return all configurations as nested dictionaries
         """
         return {
-            'data': self.data.to_dict(),
-            'model': self.model.to_dict(),
-            'run': self.run.to_dict()
+            'data_cfg': self.data.to_dict(),
+            'model_cfg': self.model.to_dict(),
+            'run_cfg': self.run.to_dict()
         }
 
     def load(self, file_path: str) -> None:
@@ -450,9 +450,9 @@ class ConfigManager:
         except Exception as e:
             raise IOError(f"Error loading config file: {str(e)}")
 
-        if not all(key in self._data for key in ['data', 'model', 'run']):
+        if not all(key in self._data for key in ['data_cfg', 'model_cfg', 'run_cfg']):
             raise SyntaxError(f"Missing required keys in config file: {file_path}, "
-                                f"the required keys are ['data', 'model', 'run']")
+                                f"the required keys are ['data_cfg', 'model_cfg', 'run_cfg']")
 
     def save(self, save_path: str) -> None:
         """
@@ -477,11 +477,11 @@ class ConfigManager:
         """
         Merge configuration from a dictionary
         """
-        if 'data' in config_dict:
-            self.data.update(config_dict['data'])
-        if 'model' in config_dict:
-            self.model.update(config_dict['model'])
-        if 'run' in config_dict:
-            self.run.update(config_dict['run'])
+        if 'data_cfg' in config_dict:
+            self.data.update(config_dict['data_cfg'])
+        if 'model_cfg' in config_dict:
+            self.model.update(config_dict['model_cfg'])
+        if 'run_cfg' in config_dict:
+            self.run.update(config_dict['run_cfg'])
 
         self._data = self.to_dict()
