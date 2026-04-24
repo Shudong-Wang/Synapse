@@ -6,7 +6,7 @@ import random
 import copy
 
 import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from synapse.core.config import ConfigManager
@@ -42,17 +42,17 @@ def train(model, model_config, data_config, run_config,
     _logger.info(f"{len(val_file_paths)} Validation files: {val_file_paths}")
     _logger.info(f"{len(test_file_paths)} Test files: {test_file_paths}")
 
-    deterministic = False
+    # explicitly set random seed, either by user or automatically
     if run_config.seed:
         _logger.info(f"Set random seed to {run_config.seed}")
         L.seed_everything(run_config.seed, workers=True, verbose=False)
-        deterministic = True
     else:
         rnd_seed = random.randint(1, 65536)
         _logger.info("No random seed specified")
         _logger.info(f"Set auto generated random seed to {rnd_seed}")
         L.seed_everything(rnd_seed, workers=True, verbose=False)
-        deterministic = True
+
+    deterministic = True
 
     data_module = DataModule(
         data_cfg=data_config,
@@ -62,28 +62,49 @@ def train(model, model_config, data_config, run_config,
         test_file_list=test_file_paths
     )
 
-    tb_logger = TensorBoardLogger(save_dir=run_config.run_dir, name=f"TensorBoardLogs_{run_info_str}")
+    tb_logger = TensorBoardLogger(
+        save_dir=run_config.run_dir,
+        name=f"TensorBoardLogs_{run_info_str}"
+    )
 
-    trainer_callbacks = [ModelSummary(max_depth=1)]
-    # save checkpoint every epoch
+    trainer_callbacks: list[Callback] = [ModelSummary(max_depth=1)]
+    best_model_checkpoint_callback = None
+    last_checkpoint_callback = None
+
     if run_config.checkpoint_dir:
         checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
-        every_epoch_checkpoint = ModelCheckpoint(
+        # Optional: save every epoch
+        if run_config.save_ckpt_each_epoch:
+            each_epoch_checkpoint_callback = ModelCheckpoint(
+                dirpath=checkpoint_dir,
+                filename="model_epoch={epoch}",
+                save_top_k=-1,
+                every_n_epochs=1,
+                save_on_train_epoch_end=False
+            )
+            trainer_callbacks.append(each_epoch_checkpoint_callback)
+
+        # Optional: keep last checkpoint as a fallback
+        last_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
-            filename="model_epoch={epoch}",
-            save_top_k=-1,
+            filename="last",
+            save_top_k=1,
+            save_last=True,
             every_n_epochs=1,
             save_on_train_epoch_end=False
         )
-        trainer_callbacks.append(every_epoch_checkpoint)
+        trainer_callbacks.append(last_checkpoint_callback)
+
         # save the best checkpoint according to monitored metric
         monitor_metric_name = ''
+        monitor_metric_mode = ''
         for metric_name, metric_fn_dict in model.metrics.items():
             if 'val' in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"] and metric_fn_dict["is_monitor"]:
                 monitor_metric_name = f"val_{metric_name}_epoch"
                 monitor_metric_mode = metric_fn_dict["mode"]
+                break
         if monitor_metric_name:
-            best_model_checkpoint = ModelCheckpoint(
+            best_model_checkpoint_callback = ModelCheckpoint(
                 dirpath=checkpoint_dir,
                 filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
                 monitor=monitor_metric_name,
@@ -92,27 +113,29 @@ def train(model, model_config, data_config, run_config,
                 every_n_epochs=1,
                 save_on_train_epoch_end=False
             )
-            trainer_callbacks.append(best_model_checkpoint)
+            trainer_callbacks.append(best_model_checkpoint_callback)
 
     if run_config.test_output:
         test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str, path_suffix)
-        test_output_callback = SaveTestOutputs(
-            data_cfg=data_config,
-            model_cfg=model_config,
-            run_cfg=run_config,
-            output_filepath=test_output
+        trainer_callbacks.append(
+            SaveTestOutputs(
+                data_cfg=data_config,
+                model_cfg=model_config,
+                run_cfg=run_config,
+                output_filepath=test_output
+            )
         )
-        trainer_callbacks.append(test_output_callback)
 
     if run_config.onnx_path:
         onnx_path = update_file_path(run_config.run_dir, run_config.onnx_path, run_info_str, path_suffix)
-        onnx_callback = SaveONNX(
-            data_cfg=data_config,
-            model_cfg=model_config,
-            run_cfg=run_config,
-            onnx_path=onnx_path
+        trainer_callbacks.append(
+            SaveONNX(
+                data_cfg=data_config,
+                model_cfg=model_config,
+                run_cfg=run_config,
+                onnx_path=onnx_path
+            )
         )
-        trainer_callbacks.append(onnx_callback)
 
     trainer = L.Trainer(
         accelerator=run_config.device,
@@ -130,29 +153,52 @@ def train(model, model_config, data_config, run_config,
         callbacks= trainer_callbacks,
     )
 
-    best_model_checkpoint = model_config.load_model
-    if 'train' in run_config.run_mode:
+    do_train = 'train' in run_config.run_mode
+    do_test = 'test' in run_config.run_mode
+    checkpoint_for_test = None
+
+    if do_train:
         _logger.info("Running in training mode...")
         trainer.fit(model=model, datamodule=data_module)
-        best_model_checkpoint = trainer.checkpoint_callback.best_model_path
-    if 'test' in run_config.run_mode:
-        model_params = copy.deepcopy(model_config.model_params)
-        # Set for_inference to True to enable ONNX transformation for ParT
-        model_params['for_inference'] = True
-        model = ModelModule.load_from_checkpoint(
-            best_model_checkpoint,
-            run_cfg=run_config,
-            model_class=model_config.model,
-            model_params=model_params,
-            loss_fn=model_config.loss_function['name'],
-            loss_params=model_config.loss_function['params'],
-            optimizer=model_config.optimizer,
-            start_lr=model_config.start_lr,
-            lr_scheduler=model_config.lr_scheduler,
-            metrics=model_config.metrics,
-            load_model=model_config.load_model,
-        )
-        _logger.info("Running in test mode...")
+
+        if best_model_checkpoint_callback and best_model_checkpoint_callback.best_model_path:
+            checkpoint_for_test = best_model_checkpoint_callback.best_model_path
+            _logger.info("Using best checkpoint for test: %s", checkpoint_for_test)
+        elif last_checkpoint_callback and last_checkpoint_callback.last_model_path:
+            checkpoint_for_test = last_checkpoint_callback.last_model_path
+            _logger.info("No best checkpoint available, using last checkpoint for test: %s", checkpoint_for_test)
+        else:
+            _logger.info("No checkpoint available after training; test will use in-memory model.")
+
+    if do_test:
+        if not do_train:
+            checkpoint_for_test = model_config.load_model
+            if not checkpoint_for_test:
+                raise ValueError(
+                    "Test-only mode requires `model.load_model` to be set in the configuration."
+                )
+
+        if checkpoint_for_test:
+            model_params = copy.deepcopy(model_config.model_params)
+            model_params['for_inference'] = True
+
+            model = ModelModule.load_from_checkpoint(
+                checkpoint_path=checkpoint_for_test,
+                run_cfg=run_config,
+                model_class=model_config.model,
+                model_params=model_params,
+                loss_fn=model_config.loss_function['name'],
+                loss_params=model_config.loss_function['params'],
+                optimizer=model_config.optimizer,
+                start_lr=model_config.start_lr,
+                lr_scheduler=model_config.lr_scheduler,
+                metrics=model_config.metrics,
+                load_model=model_config.load_model,
+            )
+            _logger.info("Running in test mode using checkpoint: %s", checkpoint_for_test)
+        else:
+            _logger.info("Running in test mode using in-memory trained model...")
+
         trainer.test(model=model, datamodule=data_module)
 
 def main():
@@ -204,7 +250,7 @@ def main():
         )
     else:
         model = ModelModule.load_from_checkpoint(
-            model_config.load_model,
+            checkpoint_path=model_config.load_model,
             run_cfg=run_config,
             model_class=model_config.model,
             model_params=model_config.model_params,

@@ -366,6 +366,7 @@ class RunConfig(ConfigBase):
         'seed': (int, NoneType),
         'use_amp': bool,
         'checkpoint_dir': (str, NoneType),
+        'save_ckpt_each_epoch': (bool, NoneType),
         'test_output': (str, NoneType),
         'onnx_path': (str, NoneType),
         'export_onnx': (str, NoneType),
@@ -399,6 +400,7 @@ class RunConfig(ConfigBase):
         self._data.setdefault('seed', None)
         self._data.setdefault('use_amp', False)
         self._data.setdefault('checkpoint_dir', None)
+        self._data.setdefault('save_ckpt_each_epoch', None)
         self._data.setdefault('test_output', None)
         self._data.setdefault('onnx_path', None)
         self._data.setdefault('export_onnx', None)
