@@ -157,17 +157,12 @@ def train(model, model_config, data_config, run_config,
 
 def main():
     parser = argparse.ArgumentParser(description="Run Synapse")
-    parser.add_argument('-d', '--data_config', type=str, required=True, help='Data configuration file path')
-    parser.add_argument('-m', '--model_config', type=str, required=True, help='Model configuration file path')
-    parser.add_argument('-r', '--run_config', type=str, required=True, help='Run configuration file path')
+    parser.add_argument('-c', '--config', type=str, required=True, help='Configuration file path')
 
     args = parser.parse_args()
     
-    config_manager = ConfigManager(
-        data_cfg_file=args.data_config,
-        model_cfg_file=args.model_config,
-        run_cfg_file=args.run_config
-    )
+    config_manager = ConfigManager(cfg_file_path=args.config)
+
     data_config = config_manager.data
     model_config = config_manager.model
     run_config = config_manager.run

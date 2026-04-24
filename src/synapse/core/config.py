@@ -1,6 +1,7 @@
 import os
 import yaml
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from types import NoneType
 from typing import Dict, Any, Type, List
 
@@ -8,13 +9,18 @@ from .tools import flatten_nested_list
 
 class ConfigBase(ABC):
     """
-    Base class for configuration management with validation and YAML I/O
+    Base class for configuration management with validation
     """
 
-    def __init__(self, cfg_file_path: str):
-        self._data: Dict[str, Any] = {}
-        self._cfg_file_path = cfg_file_path
-        self.load(cfg_file_path)
+    def __init__(self, cfg_dict: Dict[str, Any]):
+        self._data = cfg_dict
+        # Validate after loading
+        errors = self.validate()
+        if errors:
+            raise ValueError(
+                f"Config validation failed in {self.__class__.__name__}:\n" +
+                "\n".join(f" - {err}" for err in errors)
+            )
 
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -62,7 +68,8 @@ class ConfigBase(ABC):
         """
         Create a shallow copy of the configuration
         """
-        new_instance = self.__class__(self._cfg_file_path)
+        new_instance = self.__class__.__new__(self.__class__)
+        new_instance.__dict__ = self.__dict__.copy()
         new_instance._data = self._data.copy()
         return new_instance
 
@@ -70,9 +77,9 @@ class ConfigBase(ABC):
         """
         Create a deep copy of the configuration
         """
-        from copy import deepcopy
-        new_instance = self.__class__(self._cfg_file_path)
-        new_instance._data = deepcopy(self._data, memo)
+        new_instance = self.__class__.__new__(self.__class__)
+        memo[id(self)] = new_instance
+        new_instance.__dict__ = deepcopy(self.__dict__, memo)
         return new_instance
 
     @abstractmethod
@@ -85,46 +92,6 @@ class ConfigBase(ABC):
         """
         pass
 
-    def load(self, file_path: str) -> None:
-        """
-        Load configuration from YAML file
-        """
-        self._cfg_file_path = file_path
-
-        try:
-            with open(file_path, 'r') as f:
-                self._data = yaml.safe_load(f) or {}
-        except yaml.YAMLError as e:
-            raise SyntaxError(f"YAML syntax error in {file_path}: {str(e)}")
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Config file not found: {file_path}")
-        except Exception as e:
-            raise IOError(f"Error loading config file: {str(e)}")
-
-        # Validate after loading
-        errors = self.validate()
-        if errors:
-            raise ValueError(
-                f"Config validation failed in {self.__class__.__name__}:\n" +
-                "\n".join(f" - {err}" for err in errors)
-            )
-
-    def save(self, save_path: str) -> None:
-        """
-        Save configuration to YAML file
-        """
-        if save_path == self._cfg_file_path:
-            raise ValueError("Cannot save to the same file as loaded configuration.")
-
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-        try:
-            with open(save_path, 'w') as f:
-                yaml.dump(self._data, f, sort_keys=False, default_flow_style=False)
-        except Exception as e:
-            raise IOError(f"Error saving config file: {str(e)}")
-
     def update(self, values: Dict[str, Any]) -> None:
         """
         Update multiple configuration values with validation
@@ -136,7 +103,7 @@ class ConfigBase(ABC):
         """
         Return configuration as dictionary
         """
-        return self._data.copy()
+        return deepcopy(self._data)
 
     def _validate_and_set(self, key: str, value: Any) -> None:
         """
@@ -236,8 +203,8 @@ class DataConfig(ConfigBase):
 
     REQUIRED_KEYS = ['inputs', 'labels']
 
-    def __init__(self, cfg_file_path: str):
-        super().__init__(cfg_file_path)
+    def __init__(self, cfg_dict: Dict[str, Any]):
+        super().__init__(cfg_dict)
 
         data = object.__getattribute__(self, '_data')
         # construct internal items
@@ -443,19 +410,19 @@ class RunConfig(ConfigBase):
 
         return errors
 
-# TODO: consider putting model and data configs into run config
 class ConfigManager:
     """
-    Central manager for all configuration components
+    Central manager for all configuration components and YAML I/O
     """
 
-    def __init__(self,
-                 data_cfg_file: str,
-                 model_cfg_file: str,
-                 run_cfg_file: str):
-        self.data = DataConfig(data_cfg_file)
-        self.model = ModelConfig(model_cfg_file)
-        self.run = RunConfig(run_cfg_file)
+    def __init__(self, cfg_file_path: str):
+        self._data: Dict[str, Any] = {}
+        self._cfg_file_path: str = cfg_file_path
+        self.load(cfg_file_path)
+
+        self.data = DataConfig(self._data['data'])
+        self.model = ModelConfig(self._data['model'])
+        self.run = RunConfig(self._data['run'])
 
     def to_dict(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -467,15 +434,44 @@ class ConfigManager:
             'run': self.run.to_dict()
         }
 
-    def save_all(self, base_path: str) -> None:
+    def load(self, file_path: str) -> None:
         """
-        Save all configurations to directory
+        Load configuration from YAML file
         """
-        os.makedirs(base_path, exist_ok=True)
+        self._cfg_file_path = file_path
 
-        self.data.save(os.path.join(base_path, 'data_config.yaml'))
-        self.model.save(os.path.join(base_path, 'model_config.yaml'))
-        self.run.save(os.path.join(base_path, 'run_config.yaml'))
+        try:
+            with open(file_path, 'r') as f:
+                self._data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as e:
+            raise SyntaxError(f"YAML syntax error in {file_path}: {str(e)}")
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Config file not found: {file_path}")
+        except Exception as e:
+            raise IOError(f"Error loading config file: {str(e)}")
+
+        if not all(key in self._data for key in ['data', 'model', 'run']):
+            raise SyntaxError(f"Missing required keys in config file: {file_path}, "
+                                f"the required keys are ['data', 'model', 'run']")
+
+    def save(self, save_path: str) -> None:
+        """
+        Save configuration to YAML file
+        """
+        if save_path == self._cfg_file_path:
+            raise ValueError("Cannot save to the same file as loaded configuration.")
+
+        save_data = self.to_dict()
+
+        directory = os.path.dirname(save_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
+        try:
+            with open(save_path, 'w') as f:
+                yaml.dump(save_data, f, sort_keys=False, default_flow_style=False)
+        except Exception as e:
+            raise IOError(f"Error saving config file: {str(e)}")
 
     def merge_from_dict(self, config_dict: Dict[str, Dict[str, Any]]) -> None:
         """
@@ -487,3 +483,5 @@ class ConfigManager:
             self.model.update(config_dict['model'])
         if 'run' in config_dict:
             self.run.update(config_dict['run'])
+
+        self._data = self.to_dict()
