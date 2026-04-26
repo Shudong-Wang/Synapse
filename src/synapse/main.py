@@ -38,9 +38,9 @@ def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: st
 def train(model, model_config, data_config, run_config,
           train_file_paths, val_file_paths, test_file_paths,
           _logger, run_info_str, path_suffix: str = ""):
-    _logger.info(f"{len(train_file_paths)} Train files: {train_file_paths}")
-    _logger.info(f"{len(val_file_paths)} Validation files: {val_file_paths}")
-    _logger.info(f"{len(test_file_paths)} Test files: {test_file_paths}")
+    _logger.info("%d Train files:\n  %s", len(train_file_paths), "\n  ".join(train_file_paths) if train_file_paths else "<none>")
+    _logger.info("%d Validation files:\n  %s", len(val_file_paths), "\n  ".join(val_file_paths) if val_file_paths else "<none>")
+    _logger.info("%d Test files:\n  %s", len(test_file_paths), "\n  ".join(test_file_paths) if test_file_paths else "<none>")
 
     # explicitly set random seed, either by user or automatically
     if run_config.seed:

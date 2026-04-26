@@ -1,5 +1,6 @@
 import inspect
 import logging
+logging.captureWarnings(True)
 import sys
 from logging.handlers import RotatingFileHandler
 from typing import Optional, Union

@@ -184,8 +184,12 @@ run_cfg:
   logger_config:
     enable_stdout: true # Enable logging to stdout
     bridge_loggers:
+      - 'py.warnings'
       - 'lightning'
+      - 'lightning.pytorch'
+      - 'lightning.fabric'
       - 'torch'
+      - 'torch.distributed'
       - 'evenet_lite'
     log_file: 'logs/run_log_{auto}.log'
 
