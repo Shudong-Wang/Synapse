@@ -64,6 +64,7 @@ class EnhancedLogger:
             self,
             name: str = 'SynapseLogger',
             enable_stdout: bool = True,
+            ignore_python_warnings: bool = False,
             log_file: Optional[str] = None,
             debug_file: Optional[str] = None,
             logger_level: Union[int, str] = logging.DEBUG,
@@ -79,6 +80,7 @@ class EnhancedLogger:
         Args:
             name (str): The name of the logger.
             enable_stdout (bool): Whether to enable console output. Default is True.
+            ignore_python_warnings (bool): Whether to ignore Python warnings. Default is False.
             log_file (Optional[str]): Path to the main log file. If None, no file logging is done.
             debug_file (Optional[str]): Path to the debug log file. If None, no debug logging is done.
             logger_level (Union[int, str]): Logging level for the logger. Default is DEBUG.
@@ -90,6 +92,7 @@ class EnhancedLogger:
         """
         set_active_logger_name(name)
         self.logger = get_logger()
+        self.ignore_python_warnings = ignore_python_warnings
         self.handlers = []
         self._bridged_logger_names: list[str] = []
         self._configure_logger(
@@ -209,6 +212,11 @@ class EnhancedLogger:
         This is useful for third-party packages that log with their own logger names
         but should write into the same Synapse log files.
         """
+        logger_names = list(dict.fromkeys(logger_names))
+
+        if self.ignore_python_warnings and 'py.warnings' in logger_names:
+            logger_names.remove('py.warnings')
+
         for logger_name in logger_names:
             external_logger = logging.getLogger(logger_name)
             external_logger.handlers.clear()

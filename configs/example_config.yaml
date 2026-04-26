@@ -183,6 +183,7 @@ run_cfg:
 
   logger_config:
     enable_stdout: true # Enable logging to stdout
+    ignore_python_warnings: false # Ignore Python warnings in the logs
     bridge_loggers:
       - 'py.warnings'
       - 'lightning'
