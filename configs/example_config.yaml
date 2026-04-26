@@ -20,7 +20,7 @@ data_cfg:
   
   new_variables:
     log1p_pt: "np.log1p(pt)"
-    log1p_e: "np.log1p(e"
+    log1p_e: "np.log1p(e)"
     px: "pt * np.cos(phi)"
     py: "pt * np.sin(phi)"
     pz: "pt * np.sinh(eta)"
