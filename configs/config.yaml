@@ -183,6 +183,10 @@ run_cfg:
 
   logger_config:
     enable_stdout: true # Enable logging to stdout
+    bridge_loggers:
+      - 'lightning'
+      - 'torch'
+      - 'evenet_lite'
     log_file: 'logs/run_log_{auto}.log'
 
   seed: 42 # Random seed for reproducibility

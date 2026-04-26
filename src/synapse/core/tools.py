@@ -1,5 +1,4 @@
 import ast
-import logging
 import importlib
 import math
 
@@ -7,7 +6,9 @@ import awkward as ak
 import numpy as np
 import torch
 
-_logger = logging.getLogger("SynapseLogger")
+from .logger import LoggerProxy
+
+_logger = LoggerProxy(__name__)
 
 def _array(arr):
     return ak.Array(arr) if isinstance(arr, (list, tuple)) else arr

@@ -1,5 +1,4 @@
 import copy
-import logging
 
 import awkward as ak
 import numpy as np
@@ -8,8 +7,9 @@ from torch.utils.data import Dataset, IterableDataset
 from .tools import apply_selection, build_new_variables, extract_fields_from_expr
 from .fileio import read_files
 from .config import DataConfig
+from .logger import LoggerProxy
 
-_logger = logging.getLogger("SynapseLogger")
+_logger = LoggerProxy(__name__)
 
 def prepare_data(data: ak.Array, data_cfg: DataConfig, dataset_type: str) -> dict:
     """

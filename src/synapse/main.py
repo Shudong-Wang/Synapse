@@ -228,7 +228,16 @@ def main():
     if logger_config.get('debug_file'):
         logger_config['debug_file'] = update_file_path(run_config.run_dir, logger_config['debug_file'], run_info_str, 'debug')
 
-    _logger = EnhancedLogger.from_config(logger_config).get_logger()
+    enhanced_logger = EnhancedLogger.from_config(logger_config)
+    bridged_loggers = logger_config.get('bridge_loggers')
+    if isinstance(bridged_loggers, str):
+        bridged_loggers = [bridged_loggers]
+    if bridged_loggers:
+        enhanced_logger.bridge_loggers(
+            bridged_loggers,
+            propagate=logger_config.get('bridge_logger_propagate', False)
+        )
+    _logger = enhanced_logger.get_logger()
 
     _logger.info("Starting Synapse...")
     if logger_config.get('log_file'):

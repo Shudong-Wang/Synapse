@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import logging
 import math
 import os
 from pathlib import Path
@@ -7,7 +6,9 @@ from pathlib import Path
 import awkward as ak
 import uproot
 
-_logger = logging.getLogger("SynapseLogger")
+from .logger import LoggerProxy
+
+_logger = LoggerProxy(__name__)
 
 class FileReaderBase(ABC):
     """

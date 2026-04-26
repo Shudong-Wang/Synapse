@@ -1,17 +1,17 @@
 from functools import partial
 import inspect
 from typing import Dict, Any
-import logging
 
 import lightning as L
 import torch
 from torch.optim import Adam, AdamW, RAdam
 
 from .config import RunConfig
+from .logger import LoggerProxy
 from .tools import dynamic_import, is_scalar
 from .optimizers import Ranger
 
-_logger = logging.getLogger("SynapseLogger")
+_logger = LoggerProxy(__name__)
 
 class ModelModule(L.LightningModule):
     def __init__(

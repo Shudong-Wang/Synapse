@@ -6,10 +6,45 @@ from typing import Optional, Union
 
 import colorlog
 
-LogLevelType = Union[int, str]
+_ACTIVE_LOGGER_NAME = 'SynapseLogger'
 
 
-def _parse_level(level: LogLevelType) -> int:
+def set_active_logger_name(name: str) -> None:
+    global _ACTIVE_LOGGER_NAME
+    _ACTIVE_LOGGER_NAME = name
+
+
+def get_active_logger_name() -> str:
+    return _ACTIVE_LOGGER_NAME
+
+
+def get_logger(name_suffix: str | None = None) -> logging.Logger:
+    base_name = get_active_logger_name()
+    if name_suffix:
+        return logging.getLogger(f"{base_name}.{name_suffix}")
+    return logging.getLogger(base_name)
+
+
+class LoggerProxy:
+    """
+    Lazily resolve the currently active Synapse logger.
+
+    This allows module-level ``_logger`` objects to follow the runtime logger
+    name configured through ``EnhancedLogger(name=...)`` .
+    """
+
+    def __init__(self, name_suffix: str | None = None):
+        self.name_suffix = name_suffix
+
+    @property
+    def logger(self) -> logging.Logger:
+        return get_logger(self.name_suffix)
+
+    def __getattr__(self, item):
+        return getattr(self.logger, item)
+
+
+def _parse_level(level: Union[int, str]) -> int:
     """
     Parses the logging level from a string or returns the integer level.
     """
@@ -30,10 +65,10 @@ class EnhancedLogger:
             enable_stdout: bool = True,
             log_file: Optional[str] = None,
             debug_file: Optional[str] = None,
-            logger_level: LogLevelType = logging.DEBUG,
-            console_level: LogLevelType = logging.INFO,
-            file_level: LogLevelType = logging.INFO,
-            debug_level: LogLevelType = logging.DEBUG,
+            logger_level: Union[int, str] = logging.DEBUG,
+            console_level: Union[int, str] = logging.INFO,
+            file_level: Union[int, str] = logging.INFO,
+            debug_level: Union[int, str] = logging.DEBUG,
             max_bytes: int = 32 * 1024 * 1024,
             backup_count: int = 5
     ):
@@ -45,15 +80,17 @@ class EnhancedLogger:
             enable_stdout (bool): Whether to enable console output. Default is True.
             log_file (Optional[str]): Path to the main log file. If None, no file logging is done.
             debug_file (Optional[str]): Path to the debug log file. If None, no debug logging is done.
-            logger_level (LogLevelType): Logging level for the logger. Default is DEBUG.
-            console_level (LogLevelType): Logging level for console output. Default is INFO.
-            file_level (LogLevelType): Logging level for the main log file. Default is INFO.
-            debug_level (LogLevelType): Logging level for the debug log file. Default is DEBUG.
+            logger_level (Union[int, str]): Logging level for the logger. Default is DEBUG.
+            console_level (Union[int, str]): Logging level for console output. Default is INFO.
+            file_level (Union[int, str]): Logging level for the main log file. Default is INFO.
+            debug_level (Union[int, str]): Logging level for the debug log file. Default is DEBUG.
             max_bytes (int): Maximum size of each log file before rotation. Default is 32MB.
             backup_count (int): Number of backup files to keep. Default is 5.
         """
-        self.logger = logging.getLogger(name)
+        set_active_logger_name(name)
+        self.logger = get_logger()
         self.handlers = []
+        self._bridged_logger_names: list[str] = []
         self._configure_logger(
             enable_stdout,
             log_file,
@@ -164,10 +201,32 @@ class EnhancedLogger:
         """
         return self.logger
 
+    def bridge_loggers(self, logger_names: list[str], propagate: bool = False) -> None:
+        """
+        Attach this logger's handlers to other named loggers.
+
+        This is useful for third-party packages that log with their own logger names
+        but should write into the same Synapse log files.
+        """
+        for logger_name in logger_names:
+            external_logger = logging.getLogger(logger_name)
+            external_logger.handlers.clear()
+            external_logger.setLevel(self.logger.level)
+            external_logger.propagate = propagate
+            for handler in self.handlers:
+                external_logger.addHandler(handler)
+            if logger_name not in self._bridged_logger_names:
+                self._bridged_logger_names.append(logger_name)
+
     def close(self):
         """
         Closes all handlers associated with the logger.
         """
+        for logger_name in self._bridged_logger_names:
+            external_logger = logging.getLogger(logger_name)
+            for handler in self.handlers:
+                external_logger.removeHandler(handler)
+        self._bridged_logger_names.clear()
         for handler in self.handlers:
             handler.close()
             self.logger.removeHandler(handler)

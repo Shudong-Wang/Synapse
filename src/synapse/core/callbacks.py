@@ -1,5 +1,3 @@
-import logging
-
 import awkward as ak
 import lightning as L
 import numpy as np
@@ -7,8 +5,9 @@ import torch
 
 from .config import DataConfig, ModelConfig, RunConfig
 from .fileio import write_file
+from .logger import LoggerProxy
 
-_logger = logging.getLogger("SynapseLogger")
+_logger = LoggerProxy(__name__)
 
 class SaveTestOutputs(L.Callback):
     """

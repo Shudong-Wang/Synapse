@@ -38,7 +38,6 @@ the name, type and number of parameters for each layer.
 
 """
 
-import logging
 from typing import Any, Union
 
 from typing_extensions import override
@@ -49,8 +48,10 @@ from lightning.pytorch.utilities.model_summary import DeepSpeedSummary, summariz
 from lightning.pytorch.utilities.model_summary import ModelSummary as Summary
 from lightning.pytorch.utilities.model_summary.model_summary import _format_summary_table
 
+from ..core.logger import LoggerProxy
+
 # MODIFICATION: changed logger name
-_logger = logging.getLogger("SynapseLogger")
+_logger = LoggerProxy(__name__)
 
 
 class ModelSummary(Callback):
