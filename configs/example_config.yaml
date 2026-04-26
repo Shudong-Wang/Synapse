@@ -188,7 +188,6 @@ run_cfg:
       - 'lightning'
       - 'lightning.pytorch'
       - 'lightning.fabric'
-      - 'torch'
       - 'torch.distributed'
       - 'evenet_lite'
     log_file: 'logs/run_log_{auto}.log'
