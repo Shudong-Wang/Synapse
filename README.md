@@ -36,7 +36,7 @@ synapse-convert-hhml -c hhml_convert_config.yaml
 
 Then you can run the Synapse training:
 ```bash
-cp Synapse/configs/config.yaml /path/to/your/working/directory
-# After properly editing config.yaml
-synapse -c config.yaml
+cp Synapse/configs/example_config.yaml /path/to/your/working/directory
+# After properly editing example_config.yaml
+synapse -c example_config.yaml
 ```
