@@ -140,6 +140,32 @@ class ModelModule(L.LightningModule):
         """
         return self.model(*args, **kwargs)
 
+    def _get_current_lr(self) -> float:
+        if not self.trainer or not self.trainer.optimizers:
+            raise RuntimeError("Trainer/optimizer is not initialized.")
+        return self.trainer.optimizers[0].param_groups[0]["lr"]
+
+    def _log_epoch_scalar_to_tensorboard(self, name: str, value: Any) -> None:
+        if isinstance(value, torch.Tensor):
+            if value.numel() != 1:
+                return
+            scalar_value = value.detach().cpu().item()
+        else:
+            scalar_value = float(value)
+
+        if self.trainer is not None and getattr(self.trainer, "loggers", None):
+            loggers = self.trainer.loggers
+        elif self.logger is not None:
+            loggers = [self.logger]
+        else:
+            loggers = []
+
+        for logger in loggers:
+            experiment = getattr(logger, "experiment", None)
+            add_scalar = getattr(experiment, "add_scalar", None)
+            if callable(add_scalar):
+                add_scalar(f"epoch_metrics/{name}", scalar_value, self.current_epoch)
+
     def _shared_default_step(self, batch: Any, stage: str):
         x, y, w, s = batch
         inputs = [x[k] for k in x.keys()]
@@ -151,14 +177,21 @@ class ModelModule(L.LightningModule):
         loss = self.loss_fn(logits, *labels, weight = weight)
 
         self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        lr = self._get_current_lr()
+
+        if stage == "train":
+            self.log("train_lr_step", lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+
         for metric_name, metric_fn_dict in self.metrics.items():
             if stage in metric_fn_dict["stages"] and metric_fn_dict["on_step"]:
                 metric = metric_fn_dict['fn'](logits, *labels, weight = weight)
                 if is_scalar(metric):
-                    self.log(f"{stage}_{metric_name}_step", metric, on_step=True, prog_bar=True, logger=True)
+                    self.log(f"{stage}_{metric_name}_step", metric, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
         self.step_outputs[stage].append(
             {
+                "loss": loss.detach(),
                 "logits": logits.detach(),
                 "labels": [label.detach() for label in labels],
                 "weight": weight.detach(),
@@ -197,29 +230,46 @@ class ModelModule(L.LightningModule):
         _logger.info(f"======= Training epoch {self.current_epoch} =======")
 
     def on_validation_epoch_start(self) -> None:
+        if self.trainer.sanity_checking:
+            return
+
+        if self.step_outputs["train"]:
+            self._shared_on_epoch_end("train")
         _logger.info(f"======= Validating epoch {self.current_epoch} =======")
 
     def _shared_on_epoch_end(self, stage: str):
 
         outputs = self.step_outputs[stage]
 
+        all_losses = torch.stack([o["loss"] for o in outputs])
         all_logits = torch.cat([o["logits"] for o in outputs])
         all_labels = []
         for i in range(len(outputs[0]["labels"])):
             all_labels.append(torch.cat([o["labels"][i] for o in outputs]))
         all_weights = torch.cat([o["weight"] for o in outputs])
 
+        epoch_loss = all_losses.mean()
+        self._log_epoch_scalar_to_tensorboard(f"{stage}_loss_epoch", epoch_loss)
+
+        if stage == "train":
+            lr = self._get_current_lr()
+            self.log("train_lr_epoch", lr, on_step=False, on_epoch=True, prog_bar=True, logger=False)
+            self._log_epoch_scalar_to_tensorboard("train_lr_epoch", lr)
+            _logger.info(f"train_lr_epoch{self.current_epoch}: {lr}")
+
         for metric_name, metric_fn_dict in self.metrics.items():
             if stage in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"]:
                 metric = metric_fn_dict['fn'](all_logits, *all_labels, weight=all_weights)
-                _logger.info(f"{stage}_{metric_name}_epoch: \n{metric}")
+                _logger.info(f"{stage}_{metric_name}_epoch{self.current_epoch}: \n{metric}")
                 if is_scalar(metric):
-                    self.log(f"{stage}_{metric_name}_epoch", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+                    self._log_epoch_scalar_to_tensorboard(f"{stage}_{metric_name}_epoch", metric)
+                    self.log(f"{stage}_{metric_name}_epoch", metric, on_step=False, on_epoch=True, prog_bar=True, logger=False)
 
         self.step_outputs[stage].clear()
 
     def on_train_epoch_end(self):
-        self._shared_on_epoch_end("train")
+        # self._shared_on_epoch_end("train")
+        pass
 
     def on_validation_epoch_end(self):
         self._shared_on_epoch_end("val")
@@ -228,7 +278,6 @@ class ModelModule(L.LightningModule):
         self._shared_on_epoch_end("test")
 
     def configure_optimizers(self):
-        # TODO: record LR
         optimizer_type = self.optimizer
         lr_scheduler_type = self.lr_scheduler
         lr = self.start_lr

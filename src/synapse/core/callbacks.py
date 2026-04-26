@@ -2,12 +2,59 @@ import awkward as ak
 import lightning as L
 import numpy as np
 import torch
+from lightning.pytorch.callbacks import TQDMProgressBar
 
 from .config import DataConfig, ModelConfig, RunConfig
 from .fileio import write_file
 from .logger import LoggerProxy
 
 _logger = LoggerProxy(__name__)
+
+
+class StageScopedProgressBar(TQDMProgressBar):
+    """
+    TQDM progress bar that only displays metrics relevant to the active stage.
+
+    Lightning's default progress bar keeps the latest ``prog_bar=True`` metrics across
+    train/validation/test boundaries. This callback filters the displayed metrics so the
+    bar only shows train-prefixed metrics during training, val-prefixed metrics during
+    validation, and test-prefixed metrics during testing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._stage = "train"
+
+    def on_train_epoch_start(self, trainer, *args) -> None:
+        self._stage = "train"
+        super().on_train_epoch_start(trainer, *args)
+
+    def on_validation_epoch_start(self, trainer, pl_module) -> None:
+        self._stage = "val"
+        super().on_validation_epoch_start(trainer, pl_module)
+
+    def on_test_epoch_start(self, trainer, pl_module) -> None:
+        self._stage = "test"
+        super().on_test_epoch_start(trainer, pl_module)
+
+    def get_metrics(self, trainer, pl_module):
+        metrics = super().get_metrics(trainer, pl_module)
+        visible_metrics = {"v_num"}
+
+        if self._stage == "train":
+            prefixes = ("train_",)
+        elif self._stage == "val":
+            prefixes = ("val_",)
+        elif self._stage == "test":
+            prefixes = ("test_",)
+        else:
+            prefixes = ()
+
+        return {
+            key: value
+            for key, value in metrics.items()
+            if key in visible_metrics or key.startswith(prefixes)
+        }
 
 class SaveTestOutputs(L.Callback):
     """

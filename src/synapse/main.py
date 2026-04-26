@@ -6,12 +6,12 @@ import random
 import copy
 
 import lightning as L
-from lightning.pytorch.callbacks import Callback, ModelCheckpoint, ModelSummary
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint, ModelSummary, LearningRateMonitor
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from synapse.core.config import ConfigManager
 from synapse.core.logger import EnhancedLogger
-from synapse.core.callbacks import SaveTestOutputs, SaveONNX
+from synapse.core.callbacks import SaveTestOutputs, SaveONNX, StageScopedProgressBar
 from synapse.core.model_module import ModelModule
 from synapse.core.data_module import DataModule
 
@@ -66,7 +66,11 @@ def train(model, model_config, data_config, run_config,
         name=f"TensorBoardLogs_{run_info_str}"
     )
 
-    trainer_callbacks: list[Callback] = [ModelSummary(max_depth=1)]
+    trainer_callbacks: list[Callback] = [
+        StageScopedProgressBar(),
+        ModelSummary(max_depth=1),
+        LearningRateMonitor(logging_interval='step')
+    ]
     best_model_checkpoint_callback = None
     last_checkpoint_callback = None
 
