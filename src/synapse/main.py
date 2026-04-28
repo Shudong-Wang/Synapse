@@ -41,6 +41,7 @@ def train(model, model_config, data_config, run_config,
     _logger.info("%d Validation files:\n  %s", len(val_file_paths), "\n  ".join(val_file_paths) if val_file_paths else "<none>")
     _logger.info("%d Test files:\n  %s", len(test_file_paths), "\n  ".join(test_file_paths) if test_file_paths else "<none>")
 
+    _logger.info("Train entry selection")
     # explicitly set random seed, either by user or automatically
     if run_config.seed:
         _logger.info(f"Set random seed to {run_config.seed}")
@@ -300,10 +301,10 @@ def main():
             else:
                 base_selection = ""
             for i in run_folds:
-                data_config.train_selection = (f"{base_selection}({cv_var}%{k_folds} != {i}) & "
-                                                f"({cv_var}%{k_folds} != {(i+1)%k_folds})")
-                data_config.val_selection = f"{base_selection}({cv_var}%{k_folds} == {(i+1)%k_folds})"
-                data_config.test_selection = f"{base_selection}({cv_var}%{k_folds} == {i})"
+                data_config.train_selection = (f"{base_selection}({cv_var}%{k_folds} != {(i-2)%k_folds}) & "
+                                                f"({cv_var}%{k_folds} != {(i-1)%k_folds})")
+                data_config.val_selection = f"{base_selection}({cv_var}%{k_folds} == {(i-2)%k_folds})"
+                data_config.test_selection = f"{base_selection}({cv_var}%{k_folds} == {(i-1)%k_folds})"
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
                 train(model, model_config, data_config, run_config,
                         file_paths, file_paths, file_paths,
@@ -323,9 +324,9 @@ def main():
                     for j in range(k_folds-2):
                         if f"fold_{(i+j)%k_folds}" in file_path:
                             train_file_paths.append(file_path)
-                    if f"fold_{(i+k_folds-2)%k_folds}" in file_path:
+                    if f"fold_{(i-2)%k_folds}" in file_path:
                         val_file_paths.append(file_path)
-                    if f"fold_{(i+k_folds-1)%k_folds}" in file_path:
+                    if f"fold_{(i-1)%k_folds}" in file_path:
                         test_file_paths.append(file_path)
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
                 train(model, model_config, data_config, run_config,
