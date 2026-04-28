@@ -37,11 +37,6 @@ def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: st
 def train(model, model_config, data_config, run_config,
           train_file_paths, val_file_paths, test_file_paths,
           _logger, run_info_str, path_suffix: str = ""):
-    _logger.info("%d Train files:\n  %s", len(train_file_paths), "\n  ".join(train_file_paths) if train_file_paths else "<none>")
-    _logger.info("%d Validation files:\n  %s", len(val_file_paths), "\n  ".join(val_file_paths) if val_file_paths else "<none>")
-    _logger.info("%d Test files:\n  %s", len(test_file_paths), "\n  ".join(test_file_paths) if test_file_paths else "<none>")
-
-    _logger.info("Train entry selection")
     # explicitly set random seed, either by user or automatically
     if run_config.seed:
         _logger.info(f"Set random seed to {run_config.seed}")
@@ -163,6 +158,13 @@ def train(model, model_config, data_config, run_config,
 
     if do_train:
         _logger.info("Running in training mode...")
+        _logger.info("%d Train files:\n  %s", len(train_file_paths),
+                    "\n  ".join(train_file_paths) if train_file_paths else "<none>")
+        _logger.info("%d Validation files:\n  %s", len(val_file_paths),
+                    "\n  ".join(val_file_paths) if val_file_paths else "<none>")
+        _logger.info("Train entry selection: %s", data_config.train_selection)
+        _logger.info("Validation entry selection: %s", data_config.validation_selection)
+
         trainer.fit(model=model, datamodule=data_module)
 
         if best_model_checkpoint_callback and best_model_checkpoint_callback.best_model_path:
@@ -202,6 +204,10 @@ def train(model, model_config, data_config, run_config,
             _logger.info("Running in test mode using checkpoint: %s", checkpoint_for_test)
         else:
             _logger.info("Running in test mode using in-memory trained model...")
+
+        _logger.info("%d Test files:\n  %s", len(test_file_paths),
+                    "\n  ".join(test_file_paths) if test_file_paths else "<none>")
+        _logger.info("Test entry selection: %s", data_config.test_selection)
 
         trainer.test(model=model, datamodule=data_module)
 
