@@ -101,32 +101,41 @@ class ModelModule(L.LightningModule):
         self.metrics = {}
         if metrics:
             for metric_name, metric_fn_dict in metrics.items():
-                metric_fn = dynamic_import(metric_fn_dict['function'])
+                metric_function_path = metric_fn_dict.get('function')
+                if not isinstance(metric_function_path, str):
+                    raise TypeError(f"Invalid metric function path for '{metric_name}': {metric_function_path}")
+                metric_fn = dynamic_import(metric_function_path)
+                metric_runtime_cfg = {
+                    'on_step': metric_fn_dict['on_step'],
+                    'on_epoch': metric_fn_dict['on_epoch'],
+                    'stages': metric_fn_dict['stages'],
+                    'is_monitor': metric_fn_dict['is_monitor'],
+                    'mode': metric_fn_dict['mode'],
+                }
                 if inspect.isclass(metric_fn) and issubclass(metric_fn, torch.nn.Module):
                     if metric_fn_dict.get('params'):
-                        self.metrics[metric_name] = {"fn":metric_fn(**metric_fn_dict['params'])}
+                        self.metrics[metric_name] = {
+                            'fn': metric_fn(**metric_fn_dict['params']),
+                            **metric_runtime_cfg,
+                        }
                     else:
-                        self.metrics[metric_name] = {"fn":metric_fn()}
+                        self.metrics[metric_name] = {
+                            'fn': metric_fn(),
+                            **metric_runtime_cfg,
+                        }
                 elif inspect.isfunction(metric_fn):
                     if metric_fn_dict.get('params'):
-                        self.metrics[metric_name] = {"fn":partial(metric_fn, **metric_fn_dict['params'])}
+                        self.metrics[metric_name] = {
+                            'fn': partial(metric_fn, **metric_fn_dict['params']),
+                            **metric_runtime_cfg,
+                        }
                     else:
-                        self.metrics[metric_name] = {"fn":partial(metric_fn)}
+                        self.metrics[metric_name] = {
+                            'fn': partial(metric_fn),
+                            **metric_runtime_cfg,
+                        }
                 else:
                     raise TypeError(f"Invalid metric function: {metric_fn}")
-                # TODO: move this to model_config validation
-                self.metrics[metric_name]['on_step'] = metric_fn_dict.get('on_step', False)
-                self.metrics[metric_name]['on_epoch'] = metric_fn_dict.get('on_epoch', True)
-                self.metrics[metric_name]['stages'] = metric_fn_dict.get('stages', ["train", "val", "test"])
-                # TODO: validate that metrics has 'is_monitor' must has 'mode' and its stages contains 'val'
-                self.metrics[metric_name]['is_monitor'] = metric_fn_dict.get('is_monitor', False)
-                self.metrics[metric_name]['mode'] = metric_fn_dict.get('mode')
-
-        # TODO: move this validation to model_config validation
-        # validate is_monitor flag is unique
-        is_monitor_count = sum(1 for m in self.metrics.values() if m['is_monitor'])
-        if is_monitor_count > 1:
-            raise ValueError("Only one metric can be marked as monitor (is_monitor=True).")
 
         self.step_outputs = {
             "train": [],

@@ -318,6 +318,105 @@ class ModelConfig(ConfigBase):
 
     REQUIRED_KEYS = ['model', 'model_params', 'loss_function', 'start_lr']
 
+    _VALID_METRIC_STAGES = {'train', 'val', 'test'}
+
+    def _validate_metrics(self) -> List[str]:
+        errors = []
+        metrics = self._data.get('metrics')
+        if metrics is None:
+            return errors
+
+        normalized_metrics = {}
+        monitor_metric_names = []
+
+        for metric_name, metric_cfg in metrics.items():
+            metric_prefix = f"Metric '{metric_name}'"
+
+            if not isinstance(metric_cfg, dict):
+                errors.append(f"{metric_prefix} must be a dictionary, got {type(metric_cfg).__name__}")
+                continue
+
+            normalized_metric = dict(metric_cfg)
+
+            function_path = normalized_metric.get('function')
+            if function_path is None:
+                errors.append(f"{metric_prefix} is missing required key: function")
+            elif not isinstance(function_path, str):
+                errors.append(f"{metric_prefix} field 'function' must be a string, got {type(function_path).__name__}")
+
+            params = normalized_metric.get('params')
+            if params is not None and not isinstance(params, dict):
+                errors.append(f"{metric_prefix} field 'params' must be a dictionary or None, got {type(params).__name__}")
+            normalized_metric.setdefault('params', None)
+
+            for bool_field, default_value in {
+                'on_step': False,
+                'on_epoch': True,
+                'is_monitor': False,
+            }.items():
+                field_value = normalized_metric.get(bool_field, default_value)
+                if not isinstance(field_value, bool):
+                    errors.append(
+                        f"{metric_prefix} field '{bool_field}' must be a boolean, got {type(field_value).__name__}"
+                    )
+                normalized_metric[bool_field] = field_value
+
+            stages = normalized_metric.get('stages', ['train', 'val', 'test'])
+            if not isinstance(stages, list):
+                errors.append(f"{metric_prefix} field 'stages' must be a list, got {type(stages).__name__}")
+                stages = []
+            else:
+                if not stages:
+                    errors.append(f"{metric_prefix} field 'stages' must not be empty")
+                if any(not isinstance(stage, str) for stage in stages):
+                    errors.append(f"{metric_prefix} field 'stages' must contain only strings")
+
+                duplicate_stages = sorted({stage for stage in stages if stages.count(stage) > 1})
+                if duplicate_stages:
+                    errors.append(f"{metric_prefix} field 'stages' contains duplicates: {duplicate_stages}")
+
+                invalid_stages = sorted({stage for stage in stages if isinstance(stage, str) and stage not in self._VALID_METRIC_STAGES})
+                if invalid_stages:
+                    errors.append(
+                        f"{metric_prefix} field 'stages' contains invalid values: {invalid_stages}. "
+                        f"Allowed values are {self._VALID_METRIC_STAGES}"
+                    )
+            normalized_metric['stages'] = stages
+
+            mode = normalized_metric.get('mode')
+            if mode is not None and not isinstance(mode, str):
+                errors.append(f"{metric_prefix} field 'mode' must be a string or None, got {type(mode).__name__}")
+            elif mode is not None and mode not in ['min', 'max']:
+                errors.append(f"{metric_prefix} field 'mode' must be one of ['min', 'max'], got {mode}")
+            normalized_metric['mode'] = mode
+
+            if not normalized_metric['on_step'] and not normalized_metric['on_epoch']:
+                errors.append(f"{metric_prefix} must enable at least one of 'on_step' or 'on_epoch'")
+
+            if normalized_metric['is_monitor']:
+                monitor_metric_names.append(metric_name)
+                if normalized_metric['mode'] is None:
+                    errors.append(f"{metric_prefix} with is_monitor=True must define 'mode'")
+                if 'val' not in normalized_metric['stages']:
+                    errors.append(f"{metric_prefix} with is_monitor=True must include 'val' in 'stages'")
+                if not normalized_metric['on_epoch']:
+                    errors.append(f"{metric_prefix} with is_monitor=True must set 'on_epoch' to True")
+            elif normalized_metric['mode'] is not None:
+                errors.append(f"{metric_prefix} defines 'mode' but 'is_monitor' is False")
+
+            normalized_metrics[metric_name] = normalized_metric
+
+        if len(monitor_metric_names) > 1:
+            errors.append(
+                "Only one metric can be marked as monitor (is_monitor=True). "
+                f"Found: {monitor_metric_names}"
+            )
+
+        if not errors:
+            self._data['metrics'] = normalized_metrics
+
+        return errors
+
     def validate(self) -> List[str]:
         """
         Validate model configuration
@@ -333,12 +432,15 @@ class ModelConfig(ConfigBase):
 
         # Auto-set sensible defaults
         self._data.setdefault('lr_scheduler', None)
+        self._data.setdefault('metrics', None)
 
         # Validate values
         if self._data['lr_scheduler']:
             if self._data['lr_scheduler'] not in ['steps', 'cosine', 'one-cycle']:
                 errors.append(f"Not supported learning rate scheduler: {self._data['lr_scheduler']}. "
                               f"Must be one of ['step', 'cosine', 'linear', 'exponential']")
+
+        errors.extend(self._validate_metrics())
 
         return errors
 
