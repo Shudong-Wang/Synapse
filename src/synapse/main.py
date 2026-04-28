@@ -235,30 +235,37 @@ def train(model_config, data_config, run_config,
             checkpoint_dir = resume_checkpoint_dir
         else:
             checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
-        # Optional: save every epoch
+
         if run_config.save_ckpt_each_epoch:
+            # Save every epoch and also keep the canonical last checkpoint.
+            # This avoids creating two stateful ModelCheckpoint callbacks with the
+            # same state key (which Lightning does not allow when checkpointing
+            # callback state for resume).
             each_epoch_checkpoint_callback = ModelCheckpoint(
                 dirpath=checkpoint_dir,
                 filename="model_epoch={epoch}",
                 save_top_k=-1,
+                save_last=True,
                 every_n_epochs=1,
                 save_on_train_epoch_end=False
             )
             trainer_callbacks.append(each_epoch_checkpoint_callback)
-
-        # Keep last checkpoint as a fallback
-        last_checkpoint_callback = ModelCheckpoint(
-            dirpath=checkpoint_dir,
-            filename="last_epcoh={epoch}",
-            save_top_k=1,
-            save_last=True,
-            every_n_epochs=1,
-            save_on_train_epoch_end=False
-        )
-        trainer_callbacks.append(last_checkpoint_callback)
+            last_checkpoint_callback = each_epoch_checkpoint_callback
+        else:
+            # Keep only the latest checkpoint as a fallback when per-epoch saving
+            # is disabled.
+            last_checkpoint_callback = ModelCheckpoint(
+                dirpath=checkpoint_dir,
+                filename="last_epoch={epoch}",
+                save_top_k=1,
+                save_last=True,
+                every_n_epochs=1,
+                save_on_train_epoch_end=False
+            )
+            trainer_callbacks.append(last_checkpoint_callback)
 
         # Save the best checkpoint according to validation loss (default) or monitored metric
-        monitor_metric_name = 'val_loss'
+        monitor_metric_name = 'val_loss_epoch'
         monitor_metric_mode = 'min'
         for metric_name, metric_fn_dict in model.metrics.items():
             if 'val' in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"] and metric_fn_dict["is_monitor"]:
