@@ -94,7 +94,7 @@ def train(model, model_config, data_config, run_config,
         )
         trainer_callbacks.append(last_checkpoint_callback)
 
-        # save the best checkpoint according to monitored metric
+        # Optional: save the best checkpoint according to monitored metric
         monitor_metric_name = ''
         monitor_metric_mode = ''
         for metric_name, metric_fn_dict in model.metrics.items():
@@ -225,13 +225,13 @@ def main():
 
     os.makedirs(run_config.run_dir, exist_ok=True)
 
-    # Initialize the logger
-    logger_config = run_config.logger_config
-
     run_info_str = (f"{time.strftime('%Y%m%d_%H%M%S')}_{model_config.model.split('.')[-1]}"
                     f"_epochs{run_config.epochs}_start{run_config.start_epoch}"
                     f"_bs{run_config.batch_size}_lr{model_config.start_lr}"
                     f"_opt_{model_config.optimizer}_lrSche_{model_config.lr_scheduler}")
+
+    # Initialize the logger
+    logger_config = run_config.logger_config
 
     if logger_config.get('log_file'):
         logger_config['log_file'] = update_file_path(run_config.run_dir, logger_config['log_file'], run_info_str, 'info')
