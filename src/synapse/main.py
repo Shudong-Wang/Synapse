@@ -28,13 +28,13 @@ def resolve_run_path(run_dir: str, file_path: str) -> str:
 
 def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: str = "") -> str:
     updated_file_path = resolve_run_path(run_dir, file_path)
-    os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
     if suffix:
         suffix = f"_{suffix}"
     if '{auto}' in updated_file_path:
         if replace_auto == "":
             replace_auto = time.strftime('%Y%m%d_%H%M%S')
         updated_file_path = updated_file_path.replace('{auto}', replace_auto + f'{suffix}')
+    os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
     return updated_file_path
 
 def build_model_module(model_config, run_config, checkpoint_path: str | None = None, for_inference: bool = False):
@@ -182,7 +182,7 @@ def train(model_config, data_config, run_config,
     )
 
     tb_logger = TensorBoardLogger(
-        save_dir=run_config.run_dir,
+        save_dir=os.path.join(run_config.run_dir, "TensorBoardLogs"),
         name=f"TensorBoardLogs_{run_info_str}"
     )
 
@@ -243,7 +243,7 @@ def train(model_config, data_config, run_config,
             # callback state for resume).
             each_epoch_checkpoint_callback = ModelCheckpoint(
                 dirpath=checkpoint_dir,
-                filename="model_epoch={epoch}",
+                filename="model_{epoch}",
                 save_top_k=-1,
                 save_last=True,
                 every_n_epochs=1,
@@ -256,7 +256,7 @@ def train(model_config, data_config, run_config,
             # is disabled.
             last_checkpoint_callback = ModelCheckpoint(
                 dirpath=checkpoint_dir,
-                filename="last_epoch={epoch}",
+                filename="last_{epoch}",
                 save_top_k=1,
                 save_last=True,
                 every_n_epochs=1,
@@ -274,7 +274,7 @@ def train(model_config, data_config, run_config,
                 break
         best_model_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
-            filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
+            filename=f"BEST-model-{{epoch}}-{{{monitor_metric_name}:.4f}}",
             monitor=monitor_metric_name,
             mode=monitor_metric_mode,
             save_top_k=1,
@@ -328,8 +328,14 @@ def train(model_config, data_config, run_config,
                     "\n  ".join(train_file_paths) if train_file_paths else "<none>")
         _logger.info("%d Validation files:\n  %s", len(val_file_paths),
                     "\n  ".join(val_file_paths) if val_file_paths else "<none>")
-        _logger.info("Train entry selection: %s", data_config.train_selection)
-        _logger.info("Validation entry selection: %s", data_config.validation_selection)
+        if data_config.get("train_selection"):
+            _logger.info("Train entry selection: %s", data_config.train_selection)
+        else:
+            _logger.info("Train entry selection: %s", data_config.selection)
+        if data_config.get("val_selection"):
+            _logger.info("Validation entry selection: %s", data_config.val_selection)
+        else:
+            _logger.info("Validation entry selection: %s", data_config.selection)
 
         trainer.fit(model=model, datamodule=data_module, ckpt_path=resume_checkpoint_path)
 
@@ -363,7 +369,10 @@ def train(model_config, data_config, run_config,
 
         _logger.info("%d Test files:\n  %s", len(test_file_paths),
                     "\n  ".join(test_file_paths) if test_file_paths else "<none>")
-        _logger.info("Test entry selection: %s", data_config.test_selection)
+        if data_config.get("test_selection"):
+            _logger.info("Test entry selection: %s", data_config.test_selection)
+        else:
+            _logger.info("Test entry selection: %s", data_config.selection)
 
         trainer.test(model=model, datamodule=data_module)
 

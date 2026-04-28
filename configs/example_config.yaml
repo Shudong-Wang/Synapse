@@ -206,6 +206,7 @@ run_cfg:
 
   # For automatic resume, this directory must contain the checkpoint from epoch start_epoch-1.
   # When {auto} is used, Synapse searches all matching run subdirectories and picks the newest match.
+  # For fresh training runs, {auto} can be used to automatically create a unique subdirectory for the run.
   checkpoint_dir: 'checkpoints/{auto}/'
   save_ckpt_each_epoch: true # Save checkpoint at the end of each epoch
 
