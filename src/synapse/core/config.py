@@ -407,7 +407,16 @@ class RunConfig(ConfigBase):
 
         # Validate values
         if self._data['epochs'] < 1:
-            errors.append(f"Epochs must be >= 1, got {self._data['epochs']}")
+            errors.append(f"`epochs` must be >= 1, got {self._data['epochs']}")
+
+        if self._data['start_epoch'] < 0:
+            errors.append(f"`start_epoch` must be >= 0, got {self._data['start_epoch']}")
+
+        if 'train' in self._data['run_mode'] and self._data['start_epoch'] >= self._data['epochs']:
+            errors.append(
+                "For training runs, `start_epoch` must be smaller than `epochs`. "
+                f"Got `start_epoch`={self._data['start_epoch']}, 'epochs'={self._data['epochs']}"
+            )
 
 
         return errors

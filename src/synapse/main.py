@@ -8,6 +8,7 @@ import copy
 import lightning as L
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint, ModelSummary, LearningRateMonitor
 from lightning.pytorch.loggers import TensorBoardLogger
+import torch
 
 from synapse.core.config import ConfigManager
 from synapse.core.logger import EnhancedLogger
@@ -16,15 +17,17 @@ from synapse.core.model_module import ModelModule
 from synapse.core.data_module import DataModule
 
 
-def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: str = "") -> str:
+def resolve_run_path(run_dir: str, file_path: str) -> str:
     dirname = os.path.dirname(file_path)
     if dirname:
         if os.path.isabs(dirname):
-            updated_file_path = file_path
-        else:
-            updated_file_path = os.path.join(run_dir, file_path)
-    else:
-        updated_file_path = os.path.join(run_dir, file_path)
+            return file_path
+        return os.path.join(run_dir, file_path)
+    return os.path.join(run_dir, file_path)
+
+
+def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: str = "") -> str:
+    updated_file_path = resolve_run_path(run_dir, file_path)
     os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
     if suffix:
         suffix = f"_{suffix}"
@@ -34,7 +37,128 @@ def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: st
         updated_file_path = updated_file_path.replace('{auto}', replace_auto + f'{suffix}')
     return updated_file_path
 
-def train(model, model_config, data_config, run_config,
+def build_model_module(model_config, run_config, checkpoint_path: str | None = None, for_inference: bool = False):
+    model_params = copy.deepcopy(model_config.model_params)
+    if for_inference:
+        model_params['for_inference'] = True
+
+    model_kwargs = dict(
+        run_cfg=run_config,
+        model_class=model_config.model,
+        model_params=model_params,
+        loss_fn=model_config.loss_function['name'],
+        loss_params=model_config.loss_function['params'],
+        training_step_func=model_config.get('training_step_function') or "default",
+        validation_step_func=model_config.get('validation_step_function') or "default",
+        test_step_func=model_config.get('test_step_function') or "default",
+        optimizer=model_config.optimizer,
+        start_lr=model_config.start_lr,
+        lr_scheduler=model_config.get('lr_scheduler'),
+        metrics=model_config.get('metrics'),
+    )
+
+    if checkpoint_path:
+        return ModelModule.load_from_checkpoint(
+            checkpoint_path=checkpoint_path,
+            **model_kwargs,
+        )
+
+    return ModelModule(**model_kwargs)
+
+
+def get_checkpoint_epoch(checkpoint_path: str) -> int:
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint_epoch = checkpoint.get('epoch')
+    if not isinstance(checkpoint_epoch, int):
+        raise ValueError(f"Checkpoint does not contain a valid integer epoch: {checkpoint_path}")
+    return checkpoint_epoch
+
+
+def resolve_resume_checkpoint(run_config, model_config, _logger, path_suffix: str = "") -> tuple[str | None, str | None]:
+    if run_config.start_epoch == 0:
+        return None, None
+
+    if run_config.start_epoch < 0:
+        raise ValueError(f"`run_cfg.start_epoch` must be >= 0, got {run_config.start_epoch}")
+
+    if run_config.epochs <= run_config.start_epoch:
+        raise ValueError(
+            "Resumed training requires `run_cfg.epochs` to be greater than `run_cfg.start_epoch`. "
+            f"Got `epochs`={run_config.epochs}, `start_epoch`={run_config.start_epoch}."
+        )
+
+    expected_checkpoint_epoch = run_config.start_epoch - 1
+
+    load_model_path = model_config.get('load_model')
+    if load_model_path:
+        checkpoint_path = load_model_path
+        if not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(f"Resume checkpoint from `model_cfg.load_model` was not found: {checkpoint_path}")
+
+        checkpoint_epoch = get_checkpoint_epoch(checkpoint_path)
+        if checkpoint_epoch != expected_checkpoint_epoch:
+            raise ValueError(
+                "Configured `run_cfg.start_epoch` does not match the checkpoint state from `model_cfg.load_model`. "
+                f"Expected checkpoint epoch '{expected_checkpoint_epoch}', got '{checkpoint_epoch}' from: {checkpoint_path}."
+            )
+
+        return checkpoint_path, None
+
+    if not run_config.checkpoint_dir:
+        raise ValueError(
+            "Resumed training requires either model.load_model or run.checkpoint_dir to locate a checkpoint."
+        )
+
+    checkpoint_dir_pattern = resolve_run_path(run_config.run_dir, run_config.checkpoint_dir)
+    if '{auto}' in checkpoint_dir_pattern:
+        auto_pattern = f"*_{path_suffix}" if path_suffix else "*"
+        checkpoint_dir_pattern = checkpoint_dir_pattern.replace('{auto}', auto_pattern)
+
+    checkpoint_candidates = []
+    for matched_path in glob.glob(checkpoint_dir_pattern):
+        if os.path.isdir(matched_path):
+            checkpoint_candidates.extend(
+                glob.glob(os.path.join(matched_path, '**', '*.ckpt'), recursive=True)
+            )
+        elif matched_path.endswith('.ckpt') and os.path.isfile(matched_path):
+            checkpoint_candidates.append(matched_path)
+
+    if not checkpoint_candidates:
+        raise FileNotFoundError(
+            "Automatic resume checkpoint discovery failed. "
+            f"No checkpoint files were found under: {checkpoint_dir_pattern}"
+        )
+
+    matched_checkpoints = []
+    for checkpoint_path in sorted(set(checkpoint_candidates)):
+        try:
+            checkpoint_epoch = get_checkpoint_epoch(checkpoint_path)
+        except Exception as exc:
+            _logger.debug("Skipping unreadable checkpoint %s: %s", checkpoint_path, exc)
+            continue
+
+        if checkpoint_epoch == expected_checkpoint_epoch:
+            matched_checkpoints.append(checkpoint_path)
+
+    if not matched_checkpoints:
+        raise FileNotFoundError(
+            "Automatic resume checkpoint discovery failed. "
+            f"No checkpoint matching epoch {expected_checkpoint_epoch} was found under: {checkpoint_dir_pattern}"
+        )
+
+    matched_checkpoints.sort(key=os.path.getmtime, reverse=True)
+    checkpoint_path = matched_checkpoints[0]
+    if len(matched_checkpoints) > 1:
+        _logger.info(
+            "Multiple checkpoints matched resume epoch %d; using the most recently modified one: %s",
+            expected_checkpoint_epoch,
+            checkpoint_path,
+        )
+
+    return checkpoint_path, os.path.dirname(checkpoint_path)
+
+
+def train(model_config, data_config, run_config,
           train_file_paths, val_file_paths, test_file_paths,
           _logger, run_info_str, path_suffix: str = ""):
     # explicitly set random seed, either by user or automatically
@@ -62,6 +186,42 @@ def train(model, model_config, data_config, run_config,
         name=f"TensorBoardLogs_{run_info_str}"
     )
 
+    do_train = 'train' in run_config.run_mode
+    do_test = 'test' in run_config.run_mode
+    resume_checkpoint_path = None
+    resume_checkpoint_dir = None
+
+    if do_train:
+        resume_checkpoint_path, resume_checkpoint_dir = resolve_resume_checkpoint(
+            run_config=run_config,
+            model_config=model_config,
+            _logger=_logger,
+            path_suffix=path_suffix,
+        )
+
+    if resume_checkpoint_path:
+        remaining_epochs = run_config.epochs - run_config.start_epoch
+        _logger.info("Resuming training from checkpoint '%s'.", resume_checkpoint_path)
+        _logger.info(
+            "Next epoch: %d, target max epoch: %d, remaining epochs to run: %d.",
+            run_config.start_epoch,
+            run_config.epochs,
+            remaining_epochs,
+        )
+        model = build_model_module(model_config=model_config, run_config=run_config)
+    elif model_config.get('load_model') and do_train:
+        _logger.info(
+            "Initializing training model weights from checkpoint without resuming optimizer/scheduler state: %s",
+            model_config.get('load_model'),
+        )
+        model = build_model_module(
+            model_config=model_config,
+            run_config=run_config,
+            checkpoint_path=model_config.get('load_model'),
+        )
+    else:
+        model = build_model_module(model_config=model_config, run_config=run_config)
+
     trainer_callbacks: list[Callback] = [
         StageScopedProgressBar(),
         ModelSummary(max_depth=1),
@@ -71,7 +231,10 @@ def train(model, model_config, data_config, run_config,
     last_checkpoint_callback = None
 
     if run_config.checkpoint_dir:
-        checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
+        if resume_checkpoint_dir and model_config.get('load_model') is None:
+            checkpoint_dir = resume_checkpoint_dir
+        else:
+            checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
         # Optional: save every epoch
         if run_config.save_ckpt_each_epoch:
             each_epoch_checkpoint_callback = ModelCheckpoint(
@@ -86,7 +249,7 @@ def train(model, model_config, data_config, run_config,
         # Optional: keep last checkpoint as a fallback
         last_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
-            filename="last",
+            filename="last_epcoh={epoch}",
             save_top_k=1,
             save_last=True,
             every_n_epochs=1,
@@ -151,9 +314,6 @@ def train(model, model_config, data_config, run_config,
         inference_mode=True,
         callbacks= trainer_callbacks,
     )
-
-    do_train = 'train' in run_config.run_mode
-    do_test = 'test' in run_config.run_mode
     checkpoint_for_test = None
 
     if do_train:
@@ -165,7 +325,7 @@ def train(model, model_config, data_config, run_config,
         _logger.info("Train entry selection: %s", data_config.train_selection)
         _logger.info("Validation entry selection: %s", data_config.validation_selection)
 
-        trainer.fit(model=model, datamodule=data_module)
+        trainer.fit(model=model, datamodule=data_module, ckpt_path=resume_checkpoint_path)
 
         if best_model_checkpoint_callback and best_model_checkpoint_callback.best_model_path:
             checkpoint_for_test = best_model_checkpoint_callback.best_model_path
@@ -185,21 +345,11 @@ def train(model, model_config, data_config, run_config,
                 )
 
         if checkpoint_for_test:
-            model_params = copy.deepcopy(model_config.model_params)
-            model_params['for_inference'] = True
-
-            model = ModelModule.load_from_checkpoint(
+            model = build_model_module(
+                model_config=model_config,
+                run_config=run_config,
                 checkpoint_path=checkpoint_for_test,
-                run_cfg=run_config,
-                model_class=model_config.model,
-                model_params=model_params,
-                loss_fn=model_config.loss_function['name'],
-                loss_params=model_config.loss_function['params'],
-                optimizer=model_config.optimizer,
-                start_lr=model_config.start_lr,
-                lr_scheduler=model_config.lr_scheduler,
-                metrics=model_config.metrics,
-                load_model=model_config.load_model,
+                for_inference=True,
             )
             _logger.info("Running in test mode using checkpoint: %s", checkpoint_for_test)
         else:
@@ -257,33 +407,6 @@ def main():
     if logger_config.get('debug_file'):
         _logger.debug("Writing debug logs to file: %s", logger_config['debug_file'])
 
-    if model_config.load_model is None:
-        model = ModelModule(
-            run_cfg=run_config,
-            model_class=model_config.model,
-            model_params=model_config.model_params,
-            loss_fn=model_config.loss_function['name'],
-            loss_params=model_config.loss_function['params'],
-            optimizer=model_config.optimizer,
-            start_lr=model_config.start_lr,
-            lr_scheduler=model_config.lr_scheduler,
-            metrics=model_config.metrics,
-        )
-    else:
-        model = ModelModule.load_from_checkpoint(
-            checkpoint_path=model_config.load_model,
-            run_cfg=run_config,
-            model_class=model_config.model,
-            model_params=model_config.model_params,
-            loss_fn=model_config.loss_function['name'],
-            loss_params=model_config.loss_function['params'],
-            optimizer=model_config.optimizer,
-            start_lr=model_config.start_lr,
-            lr_scheduler=model_config.lr_scheduler,
-            metrics=model_config.metrics,
-            load_model=model_config.load_model,
-        )
-
     if run_config.cross_validation:
         _logger.info("Cross validation: ON")
         if run_config.k_folds is None:
@@ -312,7 +435,7 @@ def main():
                 data_config.val_selection = f"{base_selection}({cv_var}%{k_folds} == {(i-2)%k_folds})"
                 data_config.test_selection = f"{base_selection}({cv_var}%{k_folds} == {(i-1)%k_folds})"
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
-                train(model, model_config, data_config, run_config,
+                train(model_config, data_config, run_config,
                         file_paths, file_paths, file_paths,
                         _logger, run_info_str, f"{k_folds}fold_{i}")
         else: # very inflexible way, if no cross-validation variable is specified.
@@ -335,7 +458,7 @@ def main():
                     if f"fold_{(i-1)%k_folds}" in file_path:
                         test_file_paths.append(file_path)
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
-                train(model, model_config, data_config, run_config,
+                train(model_config, data_config, run_config,
                         train_file_paths, val_file_paths, test_file_paths,
                         _logger, run_info_str, f"{k_folds}fold_{i}")
     else:
@@ -348,10 +471,9 @@ def main():
             val_file_paths.extend(glob.glob(file_path))
         for file_path in data_config.test_files:
             test_file_paths.extend(glob.glob(file_path))
-        train(model, model_config, data_config, run_config,
+        train(model_config, data_config, run_config,
                 train_file_paths, val_file_paths, test_file_paths,
                 _logger, run_info_str)
-        #TODO: resume training support
         #TODO: standalone onnx export support
 
 

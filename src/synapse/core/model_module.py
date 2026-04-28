@@ -299,7 +299,7 @@ class ModelModule(L.LightningModule):
                 lr_step = round(self.run_cfg.epochs / 3)
                 scheduler = torch.optim.lr_scheduler.MultiStepLR(
                     optimizer, milestones=[lr_step, 2 * lr_step], gamma=0.1,
-                    last_epoch=-1) # FIXME: last_epoch=-1 means it will start from the beginning, fix after implementing checkpoint loading
+                    last_epoch=-1)
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
