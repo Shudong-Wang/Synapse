@@ -246,7 +246,7 @@ def train(model_config, data_config, run_config,
             )
             trainer_callbacks.append(each_epoch_checkpoint_callback)
 
-        # Optional: keep last checkpoint as a fallback
+        # Keep last checkpoint as a fallback
         last_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename="last_epcoh={epoch}",
@@ -257,25 +257,24 @@ def train(model_config, data_config, run_config,
         )
         trainer_callbacks.append(last_checkpoint_callback)
 
-        # Optional: save the best checkpoint according to monitored metric
-        monitor_metric_name = ''
-        monitor_metric_mode = ''
+        # Save the best checkpoint according to validation loss (default) or monitored metric
+        monitor_metric_name = 'val_loss'
+        monitor_metric_mode = 'min'
         for metric_name, metric_fn_dict in model.metrics.items():
             if 'val' in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"] and metric_fn_dict["is_monitor"]:
                 monitor_metric_name = f"val_{metric_name}_epoch"
                 monitor_metric_mode = metric_fn_dict["mode"]
                 break
-        if monitor_metric_name:
-            best_model_checkpoint_callback = ModelCheckpoint(
-                dirpath=checkpoint_dir,
-                filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
-                monitor=monitor_metric_name,
-                mode=monitor_metric_mode,
-                save_top_k=1,
-                every_n_epochs=1,
-                save_on_train_epoch_end=False
-            )
-            trainer_callbacks.append(best_model_checkpoint_callback)
+        best_model_checkpoint_callback = ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
+            monitor=monitor_metric_name,
+            mode=monitor_metric_mode,
+            save_top_k=1,
+            every_n_epochs=1,
+            save_on_train_epoch_end=False
+        )
+        trainer_callbacks.append(best_model_checkpoint_callback)
 
     if run_config.test_output:
         test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str, path_suffix)
