@@ -11,9 +11,9 @@ class DataModule(L.LightningDataModule):
             self,
             data_cfg: DataConfig,
             run_cfg: RunConfig,
-            train_file_list: list[str] | None = None,
-            val_file_list: list[str] | None = None,
-            test_file_list: list[str] | None = None,
+            train_file_list: list[str],
+            val_file_list: list[str],
+            test_file_list: list[str],
     ):
         super().__init__()
         self.train_dataset = None
