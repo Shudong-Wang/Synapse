@@ -1,0 +1,178 @@
+# Example Synapse config for the installed PyPI package `evenet-lite`
+# using the local wrapper `synapse.models.EveNetLiteWrapper.EveNetLiteWrapper`.
+#
+# Replace the file paths and ntuple variable names below with the ones from your dataset.
+# The important part is that `data.inputs` provides three groups that map to:
+#   - x:      object features, shape (batch, features, objects) or (batch, objects, features)
+#   - globals:event-level features, shape (batch, global_input_dim)
+#   - x_mask: object-validity mask, shape (batch, 1, objects) or (batch, objects)
+
+data_cfg:
+  train_files:
+    - /path/to/train/*.root
+  val_files:
+    - /path/to/val/*.root
+  test_files:
+    - /path/to/test/*.root
+
+  train_load_range: [0.0, 1.0]
+  val_load_range: [0.0, 1.0]
+  test_load_range: [0.0, 1.0]
+  train_normalized_range: true
+  val_normalized_range: true
+  test_normalized_range: true
+
+  tree_name: sr
+
+  new_variables:
+    log1p_pt: "np.log1p(pt)"
+    log1p_e: "np.log1p(e)"
+    px: "pt * np.cos(phi)"
+    py: "pt * np.sin(phi)"
+    pz: "pt * np.sinh(eta)"
+    abs_weight: "np.abs(weight)"
+    log1p_HT_vis: "np.log1p(HT_vis)"
+    log1p_HT_lep: "np.log1p(HT_lep)"
+    log1p_HT_jet: "np.log1p(HT_jet)"
+    log1p_HT_lepMET: "np.log1p(HT_lepMET)"
+    log1p_m_all: "np.log1p(m_all)"
+
+  selection:
+
+  # Keep these feature groups ordered as x -> globals -> x_mask so Synapse's
+  # positional model call matches EveNetLiteWrapper.forward(...).
+  inputs:
+    x:
+      - energy
+      - pt
+      - eta
+      - phi
+      - isBTag
+      - isLepton
+      - charge
+    globals:
+      - met
+      - met_phi
+      - nLepton
+      - nbJet
+      - nJet
+      - HT
+      - HT_lep
+      - M_all
+      - M_leps
+      - M_bjets
+    x_mask:
+      - valid
+
+  labels:
+    categorical:
+      - label_signal
+      - label_background
+
+  assistants:
+    - eventNumber
+
+  spectators:
+    - eventNumber
+    - dsid
+
+  weights:
+    balance_weights: true
+    weight_balance_factors:  # corresponds to the order of the categorical labels
+      - 1710.4
+      - 1.0
+    vars:
+      - abs_weight
+
+model_cfg:
+  model: synapse.models.EveNetLite.EveNetLiteWrapper
+  model_params:
+    # Must match the order of data.labels.categorical after your label construction.
+    class_labels: [signal, background]
+    global_input_dim: 10
+    sequential_input_dim: 7
+    input_order: [x, globals, x_mask]
+
+    # Optional EveNet-Lite knobs
+    config_path:
+    pretrained: false
+    pretrained_source: hf
+    pretrained_path:
+    pretrained_repo_id: Avencast/EveNet
+    pretrained_filename: checkpoints.20M.a4.last.ckpt
+    pretrained_cache_dir:
+    n_ensemble: 1
+    ensemble_mode: independent
+    use_adapter: false
+    for_inference: false
+
+  # If start_epoch > 0, set this to the checkpoint saved after epoch start_epoch-1.
+  # If left empty, Synapse will search run.checkpoint_dir for that epoch automatically.
+  load_model:
+  training_step_function:
+  validation_step_function:
+  test_step_function:
+
+  loss_function:
+    name: synapse.loss_functions.loss.CrossEntropyLossWeighted
+    params:
+
+  start_lr: 0.001
+  optimizer: AdamW
+  lr_scheduler: cosine
+
+  metrics:
+    Accuracy:
+      function: synapse.core.metrics.weighted_accuracy
+      stages: [train, val, test]
+      on_step: false
+      on_epoch: true
+      is_monitor: true
+      mode: max
+
+run_cfg:
+  run_dir: 'local_test/run_1'
+  run_mode: [train, test]
+  device: auto
+  n_devices: auto
+  # Total target epoch count for the whole run.
+  # Example: start_epoch: 5 and epochs: 20 resumes at epoch 5 and runs 15 more epochs.
+  epochs: 20
+  # Next epoch to run. Keep 0 for a fresh training run.
+  start_epoch: 0
+  batch_size: 256
+  num_workers: 4
+  val_sanity_check: false
+  cross_validation: false
+  cross_validation_var:
+  k_folds:
+  run_folds: # if none, all folds will be looped
+  logger_config:
+    enable_stdout: true # Enable logging to stdout
+    ignore_python_warnings: false # Ignore Python warnings in the logs
+    bridge_loggers:
+      - 'py.warnings'
+      - 'lightning'
+      - 'lightning.pytorch'
+      - 'lightning.fabric'
+      - 'torch.distributed'
+      - 'evenet_lite'
+    # Path to the log file, {auto} will be replaced with a unique identifier for each run
+    log_file: 'logs/run_log_{auto}.log'
+    # Path to the debug log file, {auto} will be replaced with a unique identifier for each run
+    # debug_file: 'logs/debug_{auto}.log'
+  seed: 42
+  use_amp: false
+  # For automatic resume, this directory must contain the checkpoint from epoch start_epoch-1.
+  # When {auto} is used, Synapse searches all matching run subdirectories and picks the newest match.
+  # For fresh training runs, {auto} can be used to automatically create a unique subdirectory for the run.
+  checkpoint_dir: 'checkpoints/{auto}/'
+  save_ckpt_each_epoch: true # Save checkpoint at the end of each epoch
+
+  # Path to save test output file, {auto} will be replaced with a unique identifier for each run
+  test_output: 'test_output/output_{auto}.root'
+
+  # Path to save ONNX model file after test, {auto} will be replaced with a unique identifier for each run
+  # onnx_path: 'onnx_model/model_{auto}.onnx'
+
+  # export_onnx: 'model.onnx' # not supported yet
