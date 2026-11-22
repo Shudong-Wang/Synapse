@@ -27,7 +27,7 @@ class DataModule(L.LightningDataModule):
         self.val_data_cfg = copy.deepcopy(data_cfg)
         self.test_data_cfg = copy.deepcopy(data_cfg)
 
-        if run_cfg.cross_validation and run_cfg.cross_validation_var:
+        if run_cfg.cross_validation and run_cfg.cross_validation_var and data_cfg.train_selection:
             self.train_data_cfg.selection = data_cfg.train_selection
             self.val_data_cfg.selection = data_cfg.val_selection
             self.test_data_cfg.selection = data_cfg.test_selection
@@ -58,8 +58,8 @@ class DataModule(L.LightningDataModule):
             self.train_dataset,
             batch_size=self.run_cfg.batch_size,
             num_workers=min(self.run_cfg.num_workers, len(self.train_dataset)),
-            pin_memory=True,
-            persistent_workers=True,
+            pin_memory=False,
+            persistent_workers=False,
             shuffle=True
         )
 
@@ -68,9 +68,9 @@ class DataModule(L.LightningDataModule):
             self.val_dataset,
             batch_size=self.run_cfg.batch_size,
             num_workers=min(self.run_cfg.num_workers, len(self.val_dataset)),
-            pin_memory=True,
-            persistent_workers=True,
-            shuffle = False,
+            pin_memory=False,
+            persistent_workers=False,
+            shuffle = True,
         )
 
     def test_dataloader(self):
@@ -78,7 +78,7 @@ class DataModule(L.LightningDataModule):
             self.test_dataset,
             batch_size=self.run_cfg.batch_size,
             num_workers=min(self.run_cfg.num_workers, len(self.test_dataset)),
-            pin_memory=True,
-            persistent_workers=True,
+            pin_memory=False,
+            persistent_workers=False,
             shuffle=False,
         )

@@ -128,6 +128,13 @@ class ModelModule(L.LightningModule):
         if is_monitor_count > 1:
             raise ValueError("Only one metric can be marked as monitor (is_monitor=True).")
 
+        self._cache_epoch_outputs = {
+            stage: any(
+                stage in metric_cfg["stages"] and metric_cfg["on_epoch"]
+                for metric_cfg in self.metrics.values()
+            )
+            for stage in ("train", "val", "test")
+        }
         self.step_outputs = {
             "train": [],
             "val": [],
@@ -143,12 +150,18 @@ class ModelModule(L.LightningModule):
     def _shared_default_step(self, batch: Any, stage: str):
         x, y, w, s = batch
         object_label = x.get('object_label', None)
-        object_mask = x['mask']
         if object_label is not None:
             x.pop('object_label')
-        aux_task = x.get('aux_task', None)
-        if aux_task is not None:
-            x.pop('aux_task')
+        object_mask = x['mask']
+        # aux_task = x.get('aux_task', None)
+        # if aux_task is not None:
+        #     x.pop('aux_task')
+        extra_event_info = x.get('extra_event_info', None)
+        if extra_event_info is not None:
+            x.pop('extra_event_info')
+        extra_obj_info = x.get('extra_obj_info', None)
+        if extra_obj_info is not None:
+            x.pop('extra_obj_info')
 
 
         inputs = [x[k] for k in x.keys()]
@@ -156,29 +169,12 @@ class ModelModule(L.LightningModule):
         weight = [w[k] for k in w.keys()][0]
 
         logits = self(*inputs)
+        loss, scores = self.loss_fn(logits, *labels, weight = weight, extra_event_info=extra_event_info, extra_obj_info=(extra_obj_info, object_label, object_mask))
+
         logits, logits_aux, obj_logits = logits
 
-        loss = self.loss_fn(logits, *labels, weight = weight)
+        # loss, scores = self.loss_fn(logits, *labels, weight = weight, extra_event_info=extra_event_info, extra_obj_info=(extra_obj_info, object_mask))
 
-        if object_label is not None:
-            self.model.num_obj_classes = 4  # Ensure the model has the attribute num_obj_classes
-            self.loss_object_classification = torch.nn.CrossEntropyLoss(reduction='none')
-            # # nan to zero in object_label
-            # label in long
-            object_label = object_label.long()
-            obj_loss = self.loss_object_classification(obj_logits.view(-1, self.model.num_obj_classes), object_label.view(-1))
-            obj_loss = (obj_loss * object_mask.view(-1)).sum() / object_mask.sum()
-            self.log(f"{stage}_obj_loss", obj_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log(f"{stage}_event_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            loss = loss + obj_loss.mean() * 0.1
-        if aux_task is not None:
-            loss_aux_classification = torch.nn.CrossEntropyLoss(reduction='none')
-            label_for_aux = aux_task[:,0].long()
-            weight_for_aux = aux_task[:,1]
-            aux_loss = loss_aux_classification(logits_aux, label_for_aux)
-            aux_loss = (aux_loss * weight_for_aux).sum() / weight_for_aux.sum()
-            self.log(f"{stage}_aux_loss", aux_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            loss = loss + aux_loss * 0.1
 
         self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         for metric_name, metric_fn_dict in self.metrics.items():
@@ -187,18 +183,19 @@ class ModelModule(L.LightningModule):
                 if is_scalar(metric):
                     self.log(f"{stage}_{metric_name}_step", metric, on_step=True, prog_bar=True, logger=True)
 
-        self.step_outputs[stage].append(
-            {
-                "logits": logits.detach(),
-                "labels": [label.detach() for label in labels],
-                "weight": weight.detach(),
-            }
-        )
+        if self._cache_epoch_outputs[stage]:
+            self.step_outputs[stage].append(
+                {
+                    "logits": logits.detach().cpu(),
+                    "labels": [label.detach().cpu() for label in labels],
+                    "weight": weight.detach().cpu(),
+                }
+            )
 
         if stage == "test":
             return {
                 "loss": loss,
-                "scores": torch.softmax(logits, dim=1).numpy(force=True),
+                "scores": scores.numpy(force=True),
                 "weight": weight.numpy(force=True),
                 "spectators": {k: s[k].numpy(force=True) for k in s.keys()}
             }
@@ -230,8 +227,12 @@ class ModelModule(L.LightningModule):
         _logger.info(f"======= Validating epoch {self.current_epoch} =======")
 
     def _shared_on_epoch_end(self, stage: str):
+        if not self._cache_epoch_outputs[stage]:
+            return
 
         outputs = self.step_outputs[stage]
+        if not outputs:
+            return
 
         all_logits = torch.cat([o["logits"] for o in outputs])
         all_labels = []
@@ -284,7 +285,7 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
-                    "frequency": 3
+                    "frequency": 1
                 }
             elif lr_scheduler_type == "cosine":
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -292,16 +293,16 @@ class ModelModule(L.LightningModule):
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "epoch",
-                    "frequency": 3
+                    "frequency": 1
                 }
             elif lr_scheduler_type == "one-cycle":
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer, max_lr=lr, total_steps=self.run_cfg.epochs * self.run_cfg.batch_size,
-                    pct_start=0.3, anneal_strategy='linear', cycle_momentum=False, last_epoch=-1)
+                    optimizer, max_lr=lr, total_steps=self.run_cfg.epochs * 2600, # length of dataset / batch size. Hardcoded for now
+                    pct_start=0.1, anneal_strategy='cos', cycle_momentum=False, last_epoch=-1)
                 scheduler_dict = {
                     "scheduler": scheduler,
                     "interval": "step",
-                    "frequency": 3
+                    "frequency": 1
                 }
 
 

@@ -62,7 +62,14 @@ def convert(input_data: ak.Array, cfg: dict):
 
     # Estimate memory usage
     for feat in object_variables:
-        arrays = [sample_data[f"{obj_name}_{feat}"] for obj_name in object_names]
+        # arrays = [sample_data[f"{obj_name}_{feat}"] for obj_name in object_names]
+        arrays = []
+        for obj_name in object_names:
+            if f"{obj_name}_{feat}" in sample_data.fields:
+                arrays.append(sample_data[f"{obj_name}_{feat}"])
+            else:
+                print(f"Warning: Feature '{feat}' for object '{obj_name}' not found in sample data. Filling with zeros.")
+                arrays.append(ak.zeros_like(sample_data[f"{obj_name}_pt"]))
         concatenated = ak.concatenate([arr[:, None] for arr in arrays], axis=1)
         total_size += concatenated.nbytes
     for feat in event_variables:
@@ -99,9 +106,24 @@ def convert(input_data: ak.Array, cfg: dict):
                 #         else:
                 #             to_insert = ak.zeros_like(chunk_data[f"{obj_name}_{feat}"])
                 #         arrays.append(to_insert)
+                # if feat=='pdg':
+                #     for obj_name in object_names:
+                #         if 'j' in obj_name:
+                #             to_insert = ak.ones_like(chunk_data[f"{obj_name}_pt"])
+                #         else:
+                #             to_insert = chunk_data[f"{obj_name}_{feat}"]
+                #         arrays.append(to_insert)
                 # else:
                 #     arrays = [chunk_data[f"{obj_name}_{feat}"] for obj_name in object_names]
-                arrays = [chunk_data[f"{obj_name}_{feat}"] for obj_name in object_names]
+                # arrays = [chunk_data[f"{obj_name}_{feat}"] for obj_name in object_names]
+                
+                arrays = []
+                for obj_name in object_names:
+                    if f"{obj_name}_{feat}" in chunk_data.fields:
+                        arrays.append(chunk_data[f"{obj_name}_{feat}"])
+                    else:
+                        print(f"Warning: Feature '{feat}' for object '{obj_name}' not found in sample data. Filling with zeros.")
+                        arrays.append(ak.zeros_like(chunk_data[f"{obj_name}_pt"]))
                 concatenated = ak.concatenate([arr[:, None] for arr in arrays], axis=1)
                 feat_data.append(concatenated)
                 del chunk_data
@@ -119,12 +141,46 @@ def convert(input_data: ak.Array, cfg: dict):
             output_data = build_new_variables(output_data, cfg.get('new_variables'))
             pbar.update(1)  # Update progress bar for new variables
 
-    # redefine "partOrigin" to set 3,4,5 to 3
-    output_data["partOrigin"] = ak.where(
-        (output_data["partOrigin"]>=3) & (output_data["partOrigin"]<=5),
-        3,
-        output_data["partOrigin"]
-    )
+
+    # # redefine partOriginWZ if specified
+    # if 'partOriginWZ' in output_data.fields:
+    #     partOriginWZ = output_data['partOriginWZ']
+    #     partOriginWZ = ak.where(
+    #         (partOriginWZ >= 3) & (partOriginWZ <= 5),
+    #         1,
+    #         0
+    #     )
+
+    #     dsid = output_data['dsid']
+    #     # set WZ samples to have partOriginWZ = [1,1,1,0,0,0], signal to have [1,1,1,1,1,0]
+    #     template_wz = ak.Array([1,1,1,0,0,0])
+    #     template_signal = ak.Array([1,1,1,1,1,0])
+    #     arr_regular = ak.to_regular(partOriginWZ, axis=1)
+    #     partOriginWZ = ak.where(
+    #         ((dsid == 701045) | (dsid == 701005))[:,None],
+    #         template_wz,
+    #         ak.where(
+    #             (dsid == 604422)[:,None],
+    #             template_signal,
+    #             arr_regular
+    #         )
+    #     )
+    #     output_data['partOriginWZ'] = partOriginWZ
+
+
+    # for key in output_data.fields:
+    #     ary = output_data[key]
+    #     if key.startswith("m_"):
+    #         output_data[key] = ak.where(ary == 0, -10000, ary)
+    #     elif key.startswith("dR_"):
+    #         output_data[key] = ak.where(ary==0, -1, ary)
+
+    # # redefine "partOrigin" to set 3,4,5 to 3
+    # output_data["partOrigin"] = ak.where(
+    #     (output_data["partOrigin"]>=3) & (output_data["partOrigin"]<=5),
+    #     3,
+    #     output_data["partOrigin"]
+    # )
     for field, value_pair in cfg.get('outlier_replacements', {}).items():
         if field in output_data.fields:
             if math.isnan(value_pair[0]):

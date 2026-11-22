@@ -263,25 +263,26 @@ class DataConfig(ConfigBase):
         _new_var_dict = {}
         # label things
         if '_class_label' in data['final_label_keys']:
-            class_labels = [f'ak.to_numpy({k})' for k in data['labels'].get('categorical')]
-            _new_var_dict['_class_label'] = f'np.argmax(np.stack([{",".join(class_labels)}], axis=1), axis=1)'
+            _new_var_dict['_class_label'] = f'ak.to_numpy({data["labels"]["categorical"]}).astype(np.int64)'
+            # class_labels = [f'ak.to_numpy({k})' for k in data['labels'].get('categorical')]
+            # _new_var_dict['_class_label'] = f'np.argmax(np.stack([{",".join(class_labels)}], axis=1), axis=1)'
         # weight things
         # TODO: ensure type safety
         balance_weights = data.get('weights', {}).get('balance_weights', False)
         has_balance_factors = bool(data.get('weights', {}).get('weight_balance_factors'))
         has_categorical = bool(data['labels'].get('categorical'))
         match_length = False
-        if has_balance_factors and has_categorical:
-            match_length = len(data['labels']['categorical']) == len(data['weights']['weight_balance_factors'])
+        # if has_balance_factors and has_categorical:
+        #     match_length = len(data['labels']['categorical']) == len(data['weights']['weight_balance_factors'])
         if balance_weights:
             if not all([has_balance_factors, has_categorical]):
                 raise ValueError(
                     "If 'balance_weights' is True, 'weight_balance_factors' and 'categorical' labels must be provided."
                 )
-            if not match_length:
-                raise ValueError(
-                    "If 'balance_weights' is True, 'weight_balance_factors' and 'categorical' labels must have the same length."
-                )
+            # if not match_length:
+            #     raise ValueError(
+            #         "If 'balance_weights' is True, 'weight_balance_factors' and 'categorical' labels must have the same length."
+            #     )
 
         _new_var_dict['_weight'] = 'ak.Array(np.ones(len(_data)))'
         if data['weights']:
@@ -347,6 +348,7 @@ class ModelConfig(ConfigBase):
         'lr_scheduler': str,
         'optimizer': str,
         'metrics': (dict, NoneType),
+        'output_names': (list, NoneType),
     }
 
     REQUIRED_KEYS = ['model', 'model_params', 'loss_function', 'start_lr']
