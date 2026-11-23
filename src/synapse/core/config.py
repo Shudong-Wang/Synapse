@@ -389,6 +389,8 @@ class RunConfig(ConfigBase):
         'device': str,
         'n_devices': (int, list, str),
         'load_model': (str, NoneType),
+        'resume_checkpoint': (str, NoneType),
+        'cosine_restart': (dict, NoneType),
         'epochs': int,
         'start_epoch': int,
         'batch_size': int,

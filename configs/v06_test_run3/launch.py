@@ -23,15 +23,42 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--teacher-fraction", type=float, help="Override the training mixture (0 for truth only)")
     mode.add_argument("--test-checkpoint", type=Path, help="Score the held-out fold with this checkpoint")
+    mode.add_argument("--extend-checkpoint", type=Path, help="Continue a completed fit from its last epoch checkpoint")
+    parser.add_argument("--extra-epochs", type=int, help="Number of additional epochs for an extension")
+    parser.add_argument("--restart-lr", type=float, help="Peak of the extension cosine learning-rate schedule")
     args = parser.parse_args()
 
     data = read_yaml(HERE / "data_config.yaml")
     model = read_yaml(HERE / "model_config.yaml")
     run = read_yaml(HERE / "run_fold_0.yaml")
     saved_model = None
+    checkpoint_arg = args.test_checkpoint or args.extend_checkpoint
+    if checkpoint_arg is not None:
+        checkpoint = checkpoint_arg.expanduser().resolve()
+        if not checkpoint.is_file():
+            parser.error(f"Missing checkpoint {checkpoint}")
+        saved_model = checkpoint.parent.parent / "model_config.yaml"
+        if saved_model.is_file():
+            model = read_yaml(saved_model)
+    if args.extend_checkpoint:
+        import torch
+
+        if not args.extra_epochs or args.extra_epochs < 1 or not args.restart_lr or args.restart_lr <= 0:
+            parser.error("Extending a fit requires positive --extra-epochs and --restart-lr")
+        completed = torch.load(checkpoint, map_location="cpu", weights_only=False)["epoch"] + 1
+        saved_run = checkpoint.parent.parent / "run_config.yaml"
+        if saved_run.is_file():
+            # Preserve the fit's batch size, seed and numerical settings at the new site.
+            previous = read_yaml(saved_run)
+            for key in ("batch_size", "num_workers", "seed", "use_amp", "val_sanity_check"):
+                run[key] = previous[key]
+        run.update(epochs=completed + args.extra_epochs, resume_checkpoint=str(checkpoint),
+                   cosine_restart={"epoch": completed, "lr": args.restart_lr})
+    elif args.extra_epochs is not None or args.restart_lr is not None:
+        parser.error("--extra-epochs and --restart-lr apply to --extend-checkpoint")
 
     if args.test_checkpoint is None:
-        stage = "fit"
+        stage = "extend" if args.extend_checkpoint else "fit"
         # Use Synapse's post-fit prediction loop to export the best epoch on validation.
         data["test_files"] = data["val_files"]
         run["run_mode"] = ["train", "test"]
@@ -41,13 +68,6 @@ def main():
         needed = ("train_files", "val_files")
     else:
         stage = "test"
-        checkpoint = args.test_checkpoint.expanduser().resolve()
-        if not checkpoint.is_file():
-            parser.error(f"Missing checkpoint {checkpoint}")
-        # The checkpoint directory sits beside the exact model config used for the fit.
-        saved_model = checkpoint.parent.parent / "model_config.yaml"
-        if saved_model.is_file():
-            model = read_yaml(saved_model)
         run.update(run_mode=["test"], load_model=str(checkpoint), checkpoint_dir=None,
                    test_output="test_scores.root")
         needed = ("test_files",)

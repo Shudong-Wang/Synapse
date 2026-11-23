@@ -239,6 +239,25 @@ class ModelModule(L.LightningModule):
 
     def on_train_epoch_start(self) -> None:
         _logger.info(f"======= Training epoch {self.current_epoch} =======")
+        restart = self.run_cfg.get("cosine_restart")
+        if restart and self.current_epoch == restart["epoch"]:
+            scheduler = self.lr_schedulers()
+            if not isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingLR):
+                raise ValueError("cosine_restart requires a cosine scheduler")
+            optimizer = scheduler.optimizer
+            peak = float(restart["lr"])
+            if peak <= 0:
+                raise ValueError("The cosine restart learning rate must be positive")
+            for group in optimizer.param_groups:
+                group["initial_lr"] = group["lr"] = peak
+            # Lightning retains the scheduler object restored with the Adam state.
+            cycle = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=self.trainer.max_epochs - self.current_epoch, eta_min=scheduler.eta_min
+            )
+            scheduler.load_state_dict(cycle.state_dict())
+        if restart:
+            _logger.info("Optimizer step %d, learning rate %.9g", self.global_step,
+                         self.trainer.optimizers[0].param_groups[0]["lr"])
 
     def on_validation_epoch_start(self) -> None:
         _logger.info(f"======= Validating epoch {self.current_epoch} =======")

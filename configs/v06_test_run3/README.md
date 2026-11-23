@@ -41,3 +41,11 @@ configs/v06_test_run3/train.sh --data-dir /path/to/dataset \
 ```
 
 The launcher writes `test_scores.root` into a separate `test-*/` directory and prints its location.
+
+To extend a completed fit, pass the checkpoint for the last completed epoch. Lightning restores the model, Adam moments and training counters. The example starts a new cosine schedule at `0.0001` and decays it to zero over the next 15 epochs. The extension saves its checkpoints and validation predictions in a separate directory.
+
+```bash
+configs/v06_test_run3/train.sh --data-dir /path/to/dataset \
+    --extend-checkpoint /path/to/fit-directory/checkpoints/model-epoch=epoch=19-*.ckpt \
+    --extra-epochs 15 --restart-lr 0.0001
+```

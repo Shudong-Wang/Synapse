@@ -60,12 +60,16 @@ def train(model, model_config, data_config, run_config,
         optimizer=model_config.optimizer, start_lr=model_config.start_lr,
         lr_scheduler=model_config.lr_scheduler, metrics=model_config.metrics,
     )
+    resume_checkpoint = getattr(run_config, "resume_checkpoint", None)
+    if resume_checkpoint and (model_config.load_model or 'train' not in run_config.run_mode):
+        raise ValueError("resume_checkpoint requires training mode and a single checkpoint source")
     if model is None:
-        if model_config.load_model is None:
+        initial_checkpoint = resume_checkpoint or model_config.load_model
+        if initial_checkpoint is None:
             model = ModelModule(**model_args)
         else:
-            _logger.info("Loading checkpoint %s", model_config.load_model)
-            model = ModelModule.load_from_checkpoint(model_config.load_model, **model_args)
+            _logger.info("Loading checkpoint %s", initial_checkpoint)
+            model = ModelModule.load_from_checkpoint(initial_checkpoint, **model_args)
 
     data_module = DataModule(
         data_cfg=data_config,
@@ -148,7 +152,7 @@ def train(model, model_config, data_config, run_config,
     if 'train' in run_config.run_mode:
         _logger.info("Running in training mode...")
         setup_input_norm(model.model, data_module)
-        trainer.fit(model=model, datamodule=data_module)
+        trainer.fit(model=model, datamodule=data_module, ckpt_path=resume_checkpoint)
     if 'test' in run_config.run_mode:
         if 'train' in run_config.run_mode:
             checkpoint_path = best_checkpoint_callback.best_model_path
@@ -274,7 +278,6 @@ def main(argv=None):
                 _logger, run_info_str)
         #TODO: checkpoint loading support
         #TODO: test only mode
-        #TODO: resume training support
         #TODO: standalone onnx export support
 
 
