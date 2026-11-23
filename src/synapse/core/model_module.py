@@ -28,6 +28,7 @@ class ModelModule(L.LightningModule):
             start_lr: float = 1e-3,
             lr_scheduler: str | None = None,
             metrics: Dict[str, dict] | None = None,
+            mean_train_weight: float | None = None,
     ) :
         """
         Initialize LightningModule wrapper.
@@ -45,6 +46,7 @@ class ModelModule(L.LightningModule):
             start_lr (float): Initial learning rate for the optimizer.
             lr_scheduler (str): Learning rate scheduler to be used.
             metrics (dict): Dictionary of metric names and their corresponding functions.
+            mean_train_weight (float): Training-fold loss normalization restored from a checkpoint.
         """
         super().__init__()
         self.run_cfg = run_cfg
@@ -56,6 +58,11 @@ class ModelModule(L.LightningModule):
 
         self.model = model_cls(**model_params)
 
+        loss_params = dict(loss_params or {})
+        self._use_fold_mean = loss_params.get("mean_train_weight") == "auto"
+        if self._use_fold_mean:
+            del loss_params["mean_train_weight"]
+            self.save_hyperparameters("mean_train_weight")
         loss_function = dynamic_import(loss_fn)
         if inspect.isclass(loss_function) and issubclass(loss_function, torch.nn.Module):
             if loss_params:
@@ -141,6 +148,11 @@ class ModelModule(L.LightningModule):
             "test": []
         }
 
+    def setup(self, stage: str) -> None:
+        if stage == "fit" and self._use_fold_mean:
+            self.hparams.mean_train_weight = self.trainer.datamodule.train_dataset.mean_weight
+            _logger.info("Mean balanced training event weight: %.10g", self.hparams.mean_train_weight)
+
     def forward(self, *args, **kwargs) -> torch.Tensor:
         """
         Universal forward method to call the model.
@@ -169,14 +181,19 @@ class ModelModule(L.LightningModule):
         weight = [w[k] for k in w.keys()][0]
 
         logits = self(*inputs)
-        loss, scores = self.loss_fn(logits, *labels, weight = weight, extra_event_info=extra_event_info, extra_obj_info=(extra_obj_info, object_label, object_mask))
+        loss_kwargs = dict(weight=weight, extra_event_info=extra_event_info,
+                           extra_obj_info=(extra_obj_info, object_label, object_mask))
+        if self._use_fold_mean:
+            loss_kwargs["mean_train_weight"] = self.hparams.mean_train_weight
+        loss, scores = self.loss_fn(logits, *labels, **loss_kwargs)
 
         logits, logits_aux, obj_logits = logits
 
         # loss, scores = self.loss_fn(logits, *labels, weight = weight, extra_event_info=extra_event_info, extra_obj_info=(extra_obj_info, object_mask))
 
 
-        self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"{stage}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,
+                 batch_size=weight.shape[0])
         for metric_name, metric_fn_dict in self.metrics.items():
             if stage in metric_fn_dict["stages"] and metric_fn_dict["on_step"]:
                 metric = metric_fn_dict['fn'](logits, *labels, weight = weight)

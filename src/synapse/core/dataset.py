@@ -85,6 +85,16 @@ class MapStyleDataset(Dataset):
             raise ValueError("All feature arrays must have the same length")
         self.num_samples = lengths[0]
 
+    @property
+    def mean_weight(self) -> float:
+        weights = self.data[self.data_cfg.weight_key]
+        if weights.size == 0:
+            raise ValueError("Cannot compute the mean training weight for an empty fold.")
+        mean = float(weights.mean(dtype=np.float64))
+        if not np.isfinite(mean) or mean <= 0:
+            raise ValueError(f"Mean training weight must be finite and positive, got {mean}.")
+        return mean
+
     def get_input_norm_dict(self):
         # (num_samples, num_evt_feats)
         ary_evt_feats = torch.tensor(self.data.get('evt_feats'))

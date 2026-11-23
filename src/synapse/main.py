@@ -3,7 +3,6 @@ import time
 import os
 import glob
 import random
-import copy
 
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -35,6 +34,15 @@ def update_file_path(run_dir, file_path: str, replace_auto: str = "", suffix: st
     os.makedirs(os.path.dirname(updated_file_path), exist_ok=True)
     return updated_file_path
 
+def setup_input_norm(model, data_module):
+    if hasattr(model, "setup_input_norm") and not getattr(model, "has_input_norm", False):
+        stats = data_module.train_dataset.get_input_norm_dict()
+        model.setup_input_norm(
+            x_mean=stats["obj_feats"]["mean"], x_std=stats["obj_feats"]["std"],
+            g_mean=stats["evt_feats"]["mean"], g_std=stats["evt_feats"]["std"],
+        )
+
+
 def train(model, model_config, data_config, run_config,
           train_file_paths, val_file_paths, test_file_paths,
           _logger, run_info_str, path_suffix: str = ""):
@@ -42,17 +50,22 @@ def train(model, model_config, data_config, run_config,
     _logger.info(f"{len(val_file_paths)} Validation files: {val_file_paths}")
     _logger.info(f"{len(test_file_paths)} Test files: {test_file_paths}")
 
-    deterministic = False
-    if run_config.seed:
-        _logger.info(f"Set random seed to {run_config.seed}")
-        L.seed_everything(run_config.seed, workers=True, verbose=False)
-        deterministic = True
-    else:
-        rnd_seed = random.randint(1, 65536)
-        _logger.info("No random seed specified")
-        _logger.info(f"Set auto generated random seed to {rnd_seed}")
-        L.seed_everything(rnd_seed, workers=True, verbose=False)
-        deterministic = True
+    seed = run_config.seed if run_config.seed is not None else random.SystemRandom().randint(1, 65536)
+    _logger.info("Set random seed to %d", seed)
+    L.seed_everything(seed, workers=True, verbose=False)
+
+    model_args = dict(
+        run_cfg=run_config, model_class=model_config.model, model_params=model_config.model_params,
+        loss_fn=model_config.loss_function['name'], loss_params=model_config.loss_function['params'],
+        optimizer=model_config.optimizer, start_lr=model_config.start_lr,
+        lr_scheduler=model_config.lr_scheduler, metrics=model_config.metrics,
+    )
+    if model is None:
+        if model_config.load_model is None:
+            model = ModelModule(**model_args)
+        else:
+            _logger.info("Loading checkpoint %s", model_config.load_model)
+            model = ModelModule.load_from_checkpoint(model_config.load_model, **model_args)
 
     data_module = DataModule(
         data_cfg=data_config,
@@ -65,7 +78,7 @@ def train(model, model_config, data_config, run_config,
     tb_logger = TensorBoardLogger(save_dir=run_config.run_dir, name=f"TensorBoardLogs_{run_info_str}")
 
     trainer_callbacks = [ModelSummary(max_depth=1)]
-    # save checkpoint every epoch
+    best_checkpoint_callback = None
     if run_config.checkpoint_dir:
         checkpoint_dir = update_file_path(run_config.run_dir, run_config.checkpoint_dir, run_info_str, path_suffix)
         # save the best checkpoint according to monitored metric
@@ -78,23 +91,23 @@ def train(model, model_config, data_config, run_config,
         every_epoch_checkpoint = ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=f"model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
-            # monitor=monitor_metric_name,
             save_top_k=-1,
             every_n_epochs=1,
             save_on_train_epoch_end=False
         )
         trainer_callbacks.append(every_epoch_checkpoint)
-        if monitor_metric_name:
-            best_model_checkpoint = ModelCheckpoint(
-                dirpath=checkpoint_dir,
-                filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
-                monitor=monitor_metric_name,
-                mode=monitor_metric_mode,
-                save_top_k=1,
-                every_n_epochs=1,
-                save_on_train_epoch_end=False
-            )
-            trainer_callbacks.append(best_model_checkpoint)
+        best_checkpoint_callback = ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            filename=f"BEST-model-epoch={{epoch}}-{monitor_metric_name}={{{monitor_metric_name}:.4f}}",
+            monitor=monitor_metric_name,
+            mode=monitor_metric_mode,
+            save_top_k=1,
+            every_n_epochs=1,
+            save_on_train_epoch_end=False
+        )
+        trainer_callbacks.append(best_checkpoint_callback)
+    elif 'train' in run_config.run_mode and 'test' in run_config.run_mode:
+        raise ValueError("Set checkpoint_dir to save the best validation checkpoint for post-training testing.")
 
     if run_config.test_output:
         test_output = update_file_path(run_config.run_dir, run_config.test_output, run_info_str, path_suffix)
@@ -119,7 +132,7 @@ def train(model, model_config, data_config, run_config,
     trainer = L.Trainer(
         accelerator=run_config.device,
         devices=run_config.n_devices,
-        deterministic=deterministic,
+        deterministic=True,
         num_sanity_val_steps=2 if run_config.val_sanity_check else 0,
         default_root_dir=run_config.run_dir,
         enable_checkpointing=bool(run_config.checkpoint_dir),
@@ -132,51 +145,23 @@ def train(model, model_config, data_config, run_config,
         callbacks= trainer_callbacks,
     )
 
-    # Get the mean and std of the training data for normalization
-    dict_input_norm = data_module.train_dataset.get_input_norm_dict()
-    try:
-        model.model.setup_input_norm(
-            x_mean = dict_input_norm['obj_feats']['mean'],
-            x_std = dict_input_norm['obj_feats']['std'],
-            g_mean = dict_input_norm['evt_feats']['mean'],
-            g_std = dict_input_norm['evt_feats']['std'],
-        )
-    except AttributeError:
-        _logger.warning("Model does not have 'setup_input_norm' method. Skipping input normalization setup.")
-
-    best_model_checkpoint = model_config.load_model
     if 'train' in run_config.run_mode:
         _logger.info("Running in training mode...")
+        setup_input_norm(model.model, data_module)
         trainer.fit(model=model, datamodule=data_module)
-        best_model_checkpoint = trainer.checkpoint_callback.best_model_path
     if 'test' in run_config.run_mode:
-        model_params = copy.deepcopy(model_config.model_params)
-        # Set for_inference to True to enable ONNX transformation for ParT
-        model_params['for_inference'] = True
-        model = ModelModule.load_from_checkpoint(
-            best_model_checkpoint,
-            run_cfg=run_config,
-            model_class=model_config.model,
-            model_params=model_params,
-            loss_fn=model_config.loss_function['name'],
-            loss_params=model_config.loss_function['params'],
-            optimizer=model_config.optimizer,
-            start_lr=model_config.start_lr,
-            lr_scheduler=model_config.lr_scheduler,
-            metrics=model_config.metrics,
-            load_model=model_config.load_model,
-        )
-        # normalization setup for the loaded model
-        try:
-            model.model.setup_input_norm(
-                x_mean = dict_input_norm['obj_feats']['mean'],
-                x_std = dict_input_norm['obj_feats']['std'],
-                g_mean = dict_input_norm['evt_feats']['mean'],
-                g_std = dict_input_norm['evt_feats']['std'],
-            )
-        except AttributeError:
-            _logger.warning("Model does not have 'setup_input_norm' method. Skipping input normalization setup.")
-        _logger.info("Running in test mode...")
+        if 'train' in run_config.run_mode:
+            checkpoint_path = best_checkpoint_callback.best_model_path
+            if not checkpoint_path:
+                raise RuntimeError(f"No checkpoint was saved for validation monitor {best_checkpoint_callback.monitor!r}.")
+        else:
+            checkpoint_path = model_config.load_model
+            if not checkpoint_path:
+                raise ValueError("Set load_model to the checkpoint to use for a test-only run.")
+        _logger.info("Testing checkpoint %s", checkpoint_path)
+        model_args['model_params'] = dict(model_config.model_params, for_inference=True)
+        model = ModelModule.load_from_checkpoint(checkpoint_path, **model_args)
+        setup_input_norm(model.model, data_module)
         trainer.test(model=model, datamodule=data_module)
 
 def main():
@@ -220,37 +205,6 @@ def main():
         _logger.debug("Writing debug logs to file: %s", logger_config['debug_file'])
 
     model_config.load_model = run_config.load_model
-    print(f"=====================================================")
-    print(f"Model load path: {model_config.load_model}")
-    print(f"=====================================================")
-    if model_config.load_model is None:
-        model = ModelModule(
-            run_cfg=run_config,
-            model_class=model_config.model,
-            model_params=model_config.model_params,
-            loss_fn=model_config.loss_function['name'],
-            loss_params=model_config.loss_function['params'],
-            optimizer=model_config.optimizer,
-            start_lr=model_config.start_lr,
-            lr_scheduler=model_config.lr_scheduler,
-            metrics=model_config.metrics,
-        )
-    else:
-        print(f"Loading model from checkpoint: {model_config.load_model}")
-        model = ModelModule.load_from_checkpoint(
-            model_config.load_model,
-            run_cfg=run_config,
-            model_class=model_config.model,
-            model_params=model_config.model_params,
-            loss_fn=model_config.loss_function['name'],
-            loss_params=model_config.loss_function['params'],
-            optimizer=model_config.optimizer,
-            start_lr=model_config.start_lr,
-            lr_scheduler=model_config.lr_scheduler,
-            metrics=model_config.metrics,
-            load_model=model_config.load_model,
-        )
-
     if run_config.cross_validation:
         _logger.info("Cross validation: ON")
         if run_config.k_folds is None:
@@ -279,7 +233,7 @@ def main():
                 data_config.val_selection = f"{base_selection}({cv_var}%{k_folds} == {(i+1)%k_folds})"
                 data_config.test_selection = f"{base_selection}({cv_var}%{k_folds} == {i})"
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
-                train(model, model_config, data_config, run_config,
+                train(None, model_config, data_config, run_config,
                         file_paths, file_paths, file_paths,
                         _logger, run_info_str, f"{k_folds}fold_{i}")
         else: # very inflexible way, if no cross-validation variable is specified.
@@ -302,7 +256,7 @@ def main():
                     if f"fold_{(i+k_folds-1)%k_folds}" in file_path:
                         test_file_paths.append(file_path)
                 _logger.info(f"======= Running Fold {i} of {k_folds} =======")
-                train(model, model_config, data_config, run_config,
+                train(None, model_config, data_config, run_config,
                         train_file_paths, val_file_paths, test_file_paths,
                         _logger, run_info_str, f"{k_folds}fold_{i}")
     else:
@@ -315,7 +269,7 @@ def main():
             val_file_paths.extend(glob.glob(file_path))
         for file_path in data_config.test_files:
             test_file_paths.extend(glob.glob(file_path))
-        train(model, model_config, data_config, run_config,
+        train(None, model_config, data_config, run_config,
                 train_file_paths, val_file_paths, test_file_paths,
                 _logger, run_info_str)
         #TODO: checkpoint loading support

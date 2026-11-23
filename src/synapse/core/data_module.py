@@ -1,4 +1,5 @@
 import copy
+from functools import cached_property
 
 import lightning as L
 import torch
@@ -16,7 +17,6 @@ class DataModule(L.LightningDataModule):
             test_file_list: list[str] | None = None,
     ):
         super().__init__()
-        self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
         self.train_file_list = train_file_list
@@ -32,8 +32,10 @@ class DataModule(L.LightningDataModule):
             self.val_data_cfg.selection = data_cfg.val_selection
             self.test_data_cfg.selection = data_cfg.test_selection
 
-        # initialize train dataset here for input normalization calculation
-        self.train_dataset = MapStyleDataset(
+    @cached_property
+    def train_dataset(self):
+        # A checkpoint with saved input statistics can score a test file on its own.
+        return MapStyleDataset(
             self.train_file_list,
             'train',
             self.train_data_cfg
