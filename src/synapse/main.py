@@ -164,13 +164,13 @@ def train(model, model_config, data_config, run_config,
         setup_input_norm(model.model, data_module)
         trainer.test(model=model, datamodule=data_module)
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Run Synapse")
     parser.add_argument('-d', '--data_config', type=str, required=True, help='Data configuration file path')
     parser.add_argument('-m', '--model_config', type=str, required=True, help='Model configuration file path')
     parser.add_argument('-r', '--run_config', type=str, required=True, help='Run configuration file path')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     
     config_manager = ConfigManager(
         data_cfg_file=args.data_config,

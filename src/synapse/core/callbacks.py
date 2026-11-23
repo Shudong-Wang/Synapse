@@ -68,8 +68,12 @@ class SaveTestOutputs(L.Callback):
         # for label_name in labels.keys():
         #     output[label_name] = labels[label_name]
         if "_class_label" in labels.keys():
-            for idx, label_name in enumerate(self.data_cfg.labels["categorical"]):
-                output[label_name] = labels["_class_label"] == idx
+            categorical = self.data_cfg.labels["categorical"]
+            if isinstance(categorical, str):
+                output[categorical] = labels["_class_label"]
+            else:
+                for idx, label_name in enumerate(categorical):
+                    output[label_name] = labels["_class_label"] == idx
         #         output[label_name + "_score"] = scores[:, idx]
         #     labels.pop("_class_label")
 

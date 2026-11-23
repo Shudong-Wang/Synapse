@@ -34,13 +34,11 @@ def weighted_accuracy(logits: torch.Tensor, true: torch.Tensor, weight: torch.Te
 
 def weighted_auc(logits: torch.Tensor, true: torch.Tensor,  weight: torch.Tensor):
     score = torch.softmax(logits, dim=1).numpy(force=True)
-    if score.shape[1] == 2:
-        # For binary classification, use the first column as the positive class score
-        pred = score[:, 1]
     true = true.numpy(force=True)
     weight = weight.numpy(force=True)
-    auc_score = metrics.roc_auc_score(true, pred, sample_weight=weight, multi_class='ovo')
-    return auc_score
+    if score.shape[1] == 2:
+        return metrics.roc_auc_score(true, score[:, 1], sample_weight=weight)
+    return metrics.roc_auc_score(true, score, sample_weight=weight, multi_class="ovr", average="macro")
 
 # def weighted_confusion_matrix_2cls(logits: torch.Tensor, true: torch.Tensor, weight: torch.Tensor):
 #     """Compute weighted confusion matrix accounting for negative weights."""

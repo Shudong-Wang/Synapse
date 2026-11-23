@@ -26,6 +26,8 @@ pip install -e .
 
 ### Usage
 
+For the six-central-jet ParT with EveNet distillation and a matched truth-only baseline, see the [v06 fold-0 training configurations](configs/v06_test_run3/).
+
 #### For HHML analysis
 First, you need to convert your CAF ntuple to the format accepted by Synapse.
 ```bash

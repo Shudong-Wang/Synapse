@@ -46,7 +46,7 @@ def prepare_data(data: ak.Array, data_cfg: DataConfig, dataset_type: str) -> dic
         prepared_data[data_cfg.weight_key] = ak.to_numpy(data[data_cfg.weight_key]).astype(np.float32)
     if dataset_type == 'test':
         for k in data_cfg.spectators:
-            prepared_data[k] = ak.to_numpy(data[k]).astype(np.float32) #FIXME: temp hack
+            prepared_data[k] = ak.to_numpy(data[k])
 
     return prepared_data
 
@@ -136,7 +136,7 @@ class MapStyleDataset(Dataset):
         y = {k: copy.deepcopy(self.data[k][idx]) for k in self.data_cfg.final_label_keys}
         w = {self.data_cfg.weight_key:  copy.deepcopy(self.data[self.data_cfg.weight_key][idx])}
         s = {}
-        # TODO: spectators will be converted to tensors, but not necessary, we need to improve this
         if self.dataset_type == 'test':
-            s = {k:  copy.deepcopy(self.data[k][idx]) for k in self.data_cfg.spectators}
+            # The default collator preserves uint64 event IDs when given zero-dimensional arrays.
+            s = {k: np.asarray(self.data[k][idx]) for k in self.data_cfg.spectators}
         return x, y, w, s

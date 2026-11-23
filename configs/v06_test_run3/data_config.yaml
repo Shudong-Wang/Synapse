@@ -1,0 +1,72 @@
+# Synapse fold_0, physically split by eventNumber % 3 during preprocessing.
+train_files: [3fold_2.root]
+val_files: [3fold_1.root]
+test_files: [3fold_0.root]
+tree_name: tree
+
+new_variables:
+  log1p_pt: "(np.log1p(pt) - 11.0) / 0.63"
+  log1p_e: "(np.log1p(e) - 11.5) / 0.78"
+  px: "pt * np.cos(phi)"
+  py: "pt * np.sin(phi)"
+  pz: "pt * np.sinh(eta)"
+  abs_weight: "np.abs(weight)"
+
+inputs:
+  # Object slots are l1, l2, l3, up to six leading central jets, then MET.
+  obj_feats: [log1p_pt, eta, phi, log1p_e, pdg, charge, isMET, isJet]
+  evt_feats:
+    - hhml_subChannelFlavor
+    - n_jet
+    - HT_jet
+    - HT_lepMET
+    - HT
+    - min_mllOS
+    - m_min_ll_SFOC
+    - pair01_isSFOS
+    - pair02_isSFOS
+    - l1_pdg
+    - l2_pdg
+    - l3_pdg
+    - m_l1l2
+    - m_l1l3
+    - m_l2l3
+    - m_l1j1
+    - m_l2j1
+    - m_l3j1
+    - m_l1j2
+    - m_l2j2
+    - m_l3j2
+    - m_j1j2
+    - m_llljj
+    - m_lll
+    - m_all
+    - dR_l1l2
+    - dR_l1l3
+    - dR_l2l3
+    - dR_l1j1
+    - dR_l2j1
+    - dR_l3j1
+    - dR_l1j2
+    - dR_l2j2
+    - dR_l3j2
+    - dR_j1j2
+  obj_4vecs: [px, py, pz, e]
+  mask: [valid]
+  # Synapse passes these archived teacher targets to the loss separately from the model inputs.
+  extra_event_info: [evenet_pS, evenet_pB, evenet_pConv, evenet_valid]
+
+# 0 = signal (SM ggF or VBF HH), 1 = bkg, 2 = extconv_bkg.
+labels:
+  categorical: class_id
+assistants: []
+# Copied to the held-out score tree for comparisons.
+spectators: [eventNumber, dsid, in_extconvcr, n_jet, weight, xgb_score,
+             evenet_pS, evenet_pB, evenet_pConv, evenet_valid,
+             label_signal, label_bkg, label_extconv_bkg]
+
+# Sum of |weight| for bkg / sum of |weight| for the class, measured on 3fold_2.
+weights:
+  balance_weights: true
+  weight_balance_factors: [2678.590637932819, 1.0, 2.217009499224425]
+  vars: [abs_weight]

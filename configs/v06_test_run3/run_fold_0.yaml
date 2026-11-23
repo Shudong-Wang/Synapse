@@ -1,0 +1,16 @@
+run_dir: output/fold_0
+run_mode: [train]
+# The three files already implement the fold-0 eventNumber selections.
+cross_validation: false
+device: gpu
+n_devices: 1
+epochs: 20
+batch_size: 512
+num_workers: 0
+seed: 42
+use_amp: false
+val_sanity_check: false
+logger_config:
+  enable_stdout: true
+  log_file: synapse.log
+checkpoint_dir: checkpoints
