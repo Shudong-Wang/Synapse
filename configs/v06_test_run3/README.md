@@ -49,3 +49,33 @@ configs/v06_test_run3/train.sh --data-dir /path/to/dataset \
     --extend-checkpoint /path/to/fit-directory/checkpoints/model-epoch=epoch=19-*.ckpt \
     --extra-epochs 15 --restart-lr 0.0001
 ```
+
+## Class balance for the next Run 3 lepton-origin fit
+
+The next fit with the lepton-origin recipe uses `balance_origin_classes: true` under `loss_function.params`. At fit setup Synapse measures each head’s positive and negative support on the selected training fold. Each valid object receives its event training weight divided by the number of valid objects. Real jets and MET contribute negative labels for the Higgs, top and W/Z/diboson heads.
+
+For a head with effective positive fraction `p`, a positive target gets a BCE multiplier of `0.5 / p` and a negative target gets `0.5 / (1 − p)`. This assigns half the total weight to each class and preserves the total weight of each head. The training log records both multipliers and the checkpoint stores them. Conversion uses its existing lepton-only loss.
+
+The dated Run 3 recipe also attaches two independent event classifiers to the shared event representation. The primary three-class head learns MC truth on every training event and supplies the analysis scores. A separate three-class head matches valid EveNet probabilities with a KL loss coefficient of 0.25. The eight-way softmax head learns the parent process with a cross-entropy coefficient of 0.10, in the order HH, WZ, other VV, VVV, V+jets, Vγ, top and single Higgs. A conversion retains its generator process for this head.
+
+The launcher resolves process labels from the fold dataset’s `summary.json` and records the DSID map in the fit configuration. The process loss weights an event of class `c` by `|w| × N_train / (8 × Σ_c |w|)`, using only the training fold to calculate the denominators. Each process receives one eighth of the total auxiliary weight. Validation loss uses the primary truth head. Scoring exports the main probabilities, the three `p_teacher_*` probabilities and the eight `p_process_*` probabilities. Set `process_loss_weight` to zero for a comparison using the same main, EveNet and object losses.
+
+## Background-rejection plots
+
+Run the comparison on a saved score tree from the Synapse checkout.
+
+```bash
+source ./setup.sh
+python configs/v06_test_run3/plot_background_rejection.py \
+    --scores /path/to/test_scores.root --out /path/to/evaluation/background_rejection
+```
+
+The same command accepts `validation_scores.root`. It reads the per-part `summary.json` beside the fold files listed in the saved `data_config.yaml`. Use `--catalog PATH` to supply that manifest explicitly or to use a historical CSV with columns `dsid,analysis_category`.
+
+`rejection_by_background.pdf` compares Synapse, EveNet and XGBoost for inclusive background and each populated parent process. Both pages use positive nominal MC weights and at least one jet. The first measures signal and background efficiencies inside each method’s signal region. The second includes the conversion veto in both efficiencies. Synapse uses its own conversion probability below 0.8. EveNet and XGBoost use valid EveNet predictions with the EveNet conversion probability below 0.8.
+
+`roc_curves.csv` stores the plotted curves from `hhml_eval` and the ratios at matched signal efficiency. `working_points.csv` gives the actual inclusive score cuts, achieved efficiencies, weighted background yields, rejections and ratios for reachable targets from 10% to 95%. The whiskers at 50% and 70% propagate background MC statistics at fixed signal cuts and account for the events shared between methods.
+
+`trafo60_last_three_bins.pdf` shows the expected background yield, background composition and SM HH efficiency in each of the highest three native Trafo60 bins. Each classifier uses the score, selection and edges saved by `hhml_eval` for that fold, including both XGBoost signal regions. The background yield sums signed nominal MC weights over all background processes in the bin. A component’s fraction is its signed MC yield divided by that total. Signal efficiency is the signed signal yield in that bin divided by all SM HH in the corresponding signal region. The plot also gives the background yield and signal efficiency summed over the three bins. The companion CSV contains the exact edges, yields and fractions.
+
+The plotting command finds the native benchmark under `evaluation/hhml_eval/held_out` or `evaluation/hhml_eval/validation` in the production workflow. For a different layout, pass `--benchmark /path/to/matching/fold` containing `benchmark.yaml` and `sig_with_trafo.json`. The script checks the signal and total background in every bin against those histograms before publishing the plots.

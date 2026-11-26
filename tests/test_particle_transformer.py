@@ -7,6 +7,33 @@ from synapse.models.ParticleTransformer import Block, ParticleTransformerSimple
 
 
 class ParticleTransformerTests(unittest.TestCase):
+    def test_global_features_reach_valid_objects_before_attention(self):
+        torch.manual_seed(11)
+        model = ParticleTransformerSimple(
+            input_dim=4, global_input_dim=3, num_classes=3, embed_dims=[8], global_embed_dims=[8],
+            num_layers=1, num_heads=2, num_cls_layers=1, pair_embed_dims=None,
+            num_obj_classes=4, fuse_global_into_objects=True, trim=False,
+        ).eval()
+        model.setup_input_norm(torch.zeros(4), torch.ones(4), torch.zeros(3), torch.ones(3))
+        x = torch.randn(2, 4, 3)
+        g = torch.randn(2, 3, requires_grad=True)
+        mask = torch.tensor([[[True, True, False]], [[True, False, True]]])
+        encoder_inputs = []
+        handle = model.blocks[0].register_forward_pre_hook(lambda block, args: encoder_inputs.append(args[0]))
+        try:
+            _, _, object_logits = model(x, g, mask=mask)
+        finally:
+            handle.remove()
+
+        embedded = model.embed(x)
+        event = model.global_embed(g).unsqueeze(0).expand_as(embedded)
+        fused = embedded + model.object_global_fusion(torch.cat((embedded, event), dim=-1))
+        torch.testing.assert_close(encoder_inputs[0], fused.masked_fill(~mask.permute(2, 0, 1), 0))
+        self.assertEqual(object_logits.shape, (6, 4))
+        real_logits = object_logits[mask.flatten()]
+        global_grad, = torch.autograd.grad(real_logits.square().sum(), g)
+        self.assertTrue((global_grad.abs().sum(dim=1) > 0).all())
+
     def test_head_scaling_before_output_projection(self):
         torch.manual_seed(7)
         block = Block(embed_dim=8, num_heads=2).double().eval()

@@ -55,32 +55,21 @@ class DataModule(L.LightningDataModule):
                 self.test_data_cfg
             )
 
+    def _loader(self, dataset, shuffle):
+        workers = min(self.run_cfg.num_workers, len(dataset))
+        if self.run_cfg.get("array_batches", False):
+            sampler = torch.utils.data.RandomSampler(dataset) if shuffle else torch.utils.data.SequentialSampler(dataset)
+            batches = torch.utils.data.BatchSampler(sampler, self.run_cfg.batch_size, drop_last=False)
+            # Advanced indexing gathers all columns in one call, retaining the sampler's event order.
+            return torch.utils.data.DataLoader(dataset, batch_size=None, sampler=batches, num_workers=workers)
+        return torch.utils.data.DataLoader(dataset, batch_size=self.run_cfg.batch_size, num_workers=workers,
+                                           shuffle=shuffle, pin_memory=False, persistent_workers=False)
+
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.train_dataset,
-            batch_size=self.run_cfg.batch_size,
-            num_workers=min(self.run_cfg.num_workers, len(self.train_dataset)),
-            pin_memory=False,
-            persistent_workers=False,
-            shuffle=True
-        )
+        return self._loader(self.train_dataset, True)
 
     def val_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.val_dataset,
-            batch_size=self.run_cfg.batch_size,
-            num_workers=min(self.run_cfg.num_workers, len(self.val_dataset)),
-            pin_memory=False,
-            persistent_workers=False,
-            shuffle = True,
-        )
+        return self._loader(self.val_dataset, True)
 
     def test_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.test_dataset,
-            batch_size=self.run_cfg.batch_size,
-            num_workers=min(self.run_cfg.num_workers, len(self.test_dataset)),
-            pin_memory=False,
-            persistent_workers=False,
-            shuffle=False,
-        )
+        return self._loader(self.test_dataset, False)

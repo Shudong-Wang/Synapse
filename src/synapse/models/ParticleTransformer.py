@@ -857,6 +857,9 @@ class ParticleTransformerSimple(_NormalizedTransformer):
                  trim=True,
                  for_inference=False,
                  use_amp=False,
+                 num_obj_classes=2,
+                 fuse_global_into_objects=False,
+                 event_aux_outputs=None,
                  **kwargs) -> None:
         super().__init__(input_dim, global_input_dim, **kwargs)
 
@@ -902,9 +905,7 @@ class ParticleTransformerSimple(_NormalizedTransformer):
         else:
             self.fc = None
 
-        # fc for object classification 
-        # self.num_obj_classes = 4 # hardcoded for now:  0 for others, 1 for higgs, 2 for top, 3 for z, w, diboson
-        self.num_obj_classes = 2 # hardcoded for now:  0 for others, 1 for heavy flavours
+        self.num_obj_classes = num_obj_classes
         self.obj_fc = nn.Sequential(
             nn.Linear(embed_dim, embed_dim//2),
             nn.ReLU(),
@@ -912,6 +913,17 @@ class ParticleTransformerSimple(_NormalizedTransformer):
             nn.ReLU(),
             nn.Linear(embed_dim//4, self.num_obj_classes)
         )
+
+        self.object_global_fusion = (
+            nn.Sequential(nn.Linear(2 * embed_dim, embed_dim), nn.GELU())
+            if fuse_global_into_objects else None
+        )
+        self.event_aux_outputs = event_aux_outputs or {}
+        self.event_aux_heads = nn.ModuleDict({
+            name: nn.Sequential(nn.Linear(2 * embed_dim, embed_dim // 2), nn.GELU(),
+                                nn.Linear(embed_dim // 2, len(outputs)))
+            for name, outputs in self.event_aux_outputs.items()
+        })
 
         # init
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim), requires_grad=True)
@@ -921,15 +933,9 @@ class ParticleTransformerSimple(_NormalizedTransformer):
     def no_weight_decay(self):
         return {'cls_token', }
 
-    def forward(self, x, g, v=None, mask=None, uu=None, uu_idx=None):
-        # x: (N, C, P)
-        # g: (N, C) -- global feature
-        # v: (N, 4, P) [px,py,pz,energy]
-        # mask: (N, 1, P) -- real particle = 1, padded = 0
-        # for pytorch: uu (N, C', num_pairs), uu_idx (N, 2, num_pairs)
-        # for onnx: uu (N, C', P, P), uu_idx=None
-
-        # normalize input features
+    def forward(self, x, g, v=None, mask=None, uu=None, uu_idx=None, *, detach_relation_inputs=False):
+        # x: (N, C, P), g: (N, G), v: (N, 4, P) in px,py,pz,energy order.
+        raw_features = x
         x, g = self.normalize_inputs(x, g)
 
         with torch.no_grad():
@@ -941,14 +947,22 @@ class ParticleTransformerSimple(_NormalizedTransformer):
 
         with torch.amp.autocast('cuda', enabled=self.use_amp):
             # input embedding
-            x = self.embed(x).masked_fill(~mask.permute(2, 0, 1), 0)  # (P, N, C)
+            x = self.embed(x)  # (P, N, C)
             g = self.global_embed(g)
+            if self.object_global_fusion is not None:
+                event_tokens = g.unsqueeze(0).expand_as(x)
+                x = x + self.object_global_fusion(torch.cat((x, event_tokens), dim=-1))
+            x = x.masked_fill(~mask.permute(2, 0, 1), 0)
             attn_mask = None
             if (v is not None or uu is not None) and self.pair_embed is not None:
                 attn_mask = self.pair_embed(v, uu).view(-1, v.size(-1), v.size(-1))  # (N*num_heads, P, P)
 
-            # transform
-            for block in self.blocks:
+            # Object attention finishes before the class token reads the event.
+            encoder_aux = {}
+            for index, block in enumerate(self.blocks):
+                if index == len(self.blocks) - 1:
+                    relation_inputs = x.detach() if detach_relation_inputs else x
+                    attn_mask, encoder_aux = self.final_object_attention_bias(relation_inputs, padding_mask, attn_mask)
                 x = block(x, x_cls=None, x_glob=None, padding_mask=padding_mask, attn_mask=attn_mask)
 
             # extract class token
@@ -963,10 +977,19 @@ class ParticleTransformerSimple(_NormalizedTransformer):
             # fc
             if self.fc is None:
                 return x_cls
-            output = self.fc(x_cls)
-            # object output: classification for each particle
-            obj_output = self.obj_fc(x.permute(1,0,2).contiguous().view(-1, x.size(2))) # (N*P, num_obj_classes)
-            output_for_aux = None
+            tokens = x.permute(1, 0, 2).contiguous()
+            scores, auxiliary, objects = self.classify_tokens(x_cls, tokens, raw_features, v, mask)
+            if encoder_aux:
+                auxiliary = {**(auxiliary or {}), **encoder_aux}
+            return scores, auxiliary, objects
 
-            return output, output_for_aux, obj_output
+    def final_object_attention_bias(self, tokens, padding_mask, pair_bias):
+        """Return the bias for the final object-attention block and any encoder predictions."""
+        return pair_bias, {}
+
+    def classify_tokens(self, event, tokens, raw_features, four_vectors, mask):
+        output = self.fc(event)
+        obj_output = self.obj_fc(tokens.reshape(-1, tokens.size(-1)))
+        auxiliary = {name: head(event) for name, head in self.event_aux_heads.items()} or None
+        return output, auxiliary, obj_output
 

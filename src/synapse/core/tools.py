@@ -12,6 +12,13 @@ _logger = logging.getLogger("SynapseLogger")
 def _array(arr):
     return ak.Array(arr) if isinstance(arr, (list, tuple)) else arr
 
+
+def _lookup_ids(values, mapping):
+    """Map integer identifiers to categorical targets, with -1 for unknown identifiers."""
+    unique, inverse = np.unique(ak.to_numpy(values), return_inverse=True)
+    return np.array([mapping.get(int(value), -1) for value in unique], dtype=np.int64)[inverse]
+
+
 safe_builtins = {
     "abs": np.abs,
     "round": np.round,
@@ -31,6 +38,7 @@ safe_builtins = {
     "all": ak.all,
     "len": len,
     "array": _array,
+    "lookup_ids": _lookup_ids,
 }
 
 supported_modules = {

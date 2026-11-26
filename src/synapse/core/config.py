@@ -405,6 +405,7 @@ class RunConfig(ConfigBase):
         'use_amp': bool,
         'checkpoint_dir': (str, NoneType),
         'test_output': (str, NoneType),
+        'binary_object_output_names': list,
         'onnx_path': (str, NoneType),
         'export_onnx': (str, NoneType),
     }

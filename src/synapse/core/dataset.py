@@ -36,7 +36,8 @@ def prepare_data(data: ak.Array, data_cfg: DataConfig, dataset_type: str) -> dic
     # Convert to numpy arrays, otherwise we need to define a complex collate function
     prepared_data = {}
     for k, vs in data_cfg.inputs.items():
-        prepared_data[k] = ak.to_numpy(ak.concatenate([data[v][:, np.newaxis] for v in vs], axis=1)).astype(np.float32)
+        dtype = np.int8 if k == "relation_info" else np.float32
+        prepared_data[k] = ak.to_numpy(ak.concatenate([data[v][:, np.newaxis] for v in vs], axis=1)).astype(dtype)
     for k in data_cfg.final_label_keys:
         if k == '_class_label':
             prepared_data[k] = ak.to_numpy(data[k]).astype(np.int64)
@@ -96,6 +97,9 @@ class MapStyleDataset(Dataset):
         return mean
 
     def get_input_norm_dict(self):
+        chunk_size = self.data_cfg.get("normalization_chunk_size")
+        if chunk_size:
+            return self._chunked_input_norm(int(chunk_size))
         # (num_samples, num_evt_feats)
         ary_evt_feats = torch.tensor(self.data.get('evt_feats'))
         # (num_samples,)
@@ -123,6 +127,36 @@ class MapStyleDataset(Dataset):
         norm_dict['obj_feats'] = {'mean': weighted_mean, 'std': weighted_std.clip(min=1e-6)}
 
         return norm_dict
+
+    def _chunked_input_norm(self, chunk_size):
+        if chunk_size < 1:
+            raise ValueError("Normalization chunks must be positive")
+        globals_ = self.data["evt_feats"]
+        objects = self.data["obj_feats"]
+        valid = self.data["mask"][:, 0, :]
+        weights = self.data[self.data_cfg.weight_key]
+        sums = [np.zeros(globals_.shape[1]), np.zeros(objects.shape[1])]
+        totals = np.zeros(2)
+        for start in range(0, len(weights), chunk_size):
+            chunk = slice(start, start + chunk_size)
+            w = weights[chunk].astype(np.float64)
+            ow = w[:, None] * valid[chunk]
+            totals += (w.sum(), ow.sum())
+            sums[0] += np.einsum("n,nf->f", w, globals_[chunk])
+            sums[1] += np.einsum("np,nfp->f", ow, objects[chunk])
+        if not np.all(np.isfinite(totals) & (totals > 0)):
+            raise ValueError("Normalization requires positive finite event and object weight")
+        means = [total / weight for total, weight in zip(sums, totals)]
+        variances = [np.zeros_like(mean) for mean in means]
+        for start in range(0, len(weights), chunk_size):
+            chunk = slice(start, start + chunk_size)
+            w = weights[chunk].astype(np.float64)
+            ow = w[:, None] * valid[chunk]
+            variances[0] += np.einsum("n,nf->f", w, np.square(globals_[chunk] - means[0]))
+            variances[1] += np.einsum("np,nfp->f", ow, np.square(objects[chunk] - means[1][:, None]))
+        return {key: {"mean": torch.tensor(mean, dtype=torch.float32),
+                      "std": torch.tensor(np.maximum(np.sqrt(v / total), 1.e-6), dtype=torch.float32)}
+                for key, mean, v, total in zip(("evt_feats", "obj_feats"), means, variances, totals)}
 
 
 

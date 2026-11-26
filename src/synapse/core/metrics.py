@@ -2,6 +2,28 @@ import numpy as np
 from sklearn import metrics
 import torch
 
+
+def hh_rejection_at_20(logits, true, weight, selection_info):
+    """Inclusive positive-MC-weight rejection at 20% HH efficiency from jet preselection."""
+    p = logits.softmax(dim=1).detach().cpu().numpy()
+    truth = true.detach().cpu().numpy() == 0
+    jets, signed = selection_info.detach().cpu().numpy().T
+    w = signed.astype(np.float64)
+    pre = (jets >= 1) & (w > 0)
+    sr = pre & (p[:, 2] < 0.8)
+    signal = sr & truth
+    total_signal = w[pre & truth].sum()
+    if not signal.any() or total_signal <= 0:
+        return 0.0
+    order = np.argsort(-p[signal, 0], kind="stable")
+    cumulative = np.cumsum(w[signal][order])
+    index = np.searchsorted(cumulative, 0.2 * total_signal)
+    if index >= len(order):
+        return 0.0
+    cut = p[signal, 0][order[index]]
+    passing = w[sr & ~truth & (p[:, 0] >= cut)].sum()
+    return float(w[pre & ~truth].sum() / passing) if passing > 0 else 0.0
+
 def weighted_accuracy(logits: torch.Tensor, true: torch.Tensor, weight: torch.Tensor):
     """Compute weighted accuracy."""
     score = torch.softmax(logits, dim=1)

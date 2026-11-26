@@ -121,7 +121,7 @@ class SaveONNX(L.Callback):
 
         for feat_name, feat_list in self.data_cfg.inputs.items():
             # temporary hack
-            if "object_label" == feat_name or "aux_task" == feat_name or 'extra_event_info' == feat_name or 'extra_obj_info' == feat_name:
+            if feat_name in ("object_label", "aux_task", "extra_event_info", "extra_obj_info", "process_info", "physics_info"):
                 continue
             feat_shape = None
             if feat_name == "evt_feats":

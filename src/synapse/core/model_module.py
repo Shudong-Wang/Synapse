@@ -77,6 +77,11 @@ class ModelModule(L.LightningModule):
         else:
             raise TypeError(f"loss_function: {loss_fn} is not a valid loss function or class")
 
+        if getattr(self.loss_fn, "requires_aligned_objects", False) and getattr(
+            getattr(self.model, "trimmer", None), "enabled", False
+        ):
+            raise ValueError("Use trim=False for object supervision so logits and truth have the same slot order")
+
         self._training_step = self._default_training_step
         if training_step_func != "default":
             training_step_fn = dynamic_import(training_step_func)
@@ -128,6 +133,7 @@ class ModelModule(L.LightningModule):
                 # TODO: validate that metrics has 'is_monitor' must has 'mode' and its stages contains 'val'
                 self.metrics[metric_name]['is_monitor'] = metric_fn_dict.get('is_monitor', False)
                 self.metrics[metric_name]['mode'] = metric_fn_dict.get('mode')
+                self.metrics[metric_name]['uses_selection_info'] = metric_fn_dict.get('uses_selection_info', False)
 
         # TODO: move this validation to model_config validation
         # validate is_monitor flag is unique
@@ -149,9 +155,27 @@ class ModelModule(L.LightningModule):
         }
 
     def setup(self, stage: str) -> None:
+        if stage == "fit" and hasattr(self.loss_fn, "fit_physics_weights"):
+            dataset = self.trainer.datamodule.train_dataset
+            self.loss_fn.fit_physics_weights(dataset.data["physics_info"], dataset.data[dataset.data_cfg.weight_key])
+        if stage == "fit" and hasattr(self.loss_fn, "fit_relation_weights"):
+            dataset = self.trainer.datamodule.train_dataset
+            self.loss_fn.fit_relation_weights(dataset.data["relation_info"], dataset.data["physics_info"],
+                                              dataset.data[dataset.data_cfg.weight_key], dataset.data["mask"])
         if stage == "fit" and self._use_fold_mean:
             self.hparams.mean_train_weight = self.trainer.datamodule.train_dataset.mean_weight
             _logger.info("Mean balanced training event weight: %.10g", self.hparams.mean_train_weight)
+        if stage == "fit" and getattr(self.loss_fn, "origin_class_weights", None) is not None:
+            dataset = self.trainer.datamodule.train_dataset
+            self.loss_fn.fit_origin_class_weights(dataset.data["object_label"], dataset.data["mask"],
+                                                  dataset.data[dataset.data_cfg.weight_key])
+            negative, positive = self.loss_fn.origin_class_weights.tolist()
+            _logger.info("Origin BCE weights (Higgs, top, W/Z/diboson), negative=%s positive=%s", negative, positive)
+        if stage == "fit" and getattr(self.loss_fn, "process_class_weights", None) is not None:
+            dataset = self.trainer.datamodule.train_dataset
+            self.loss_fn.fit_process_class_weights(dataset.data["process_info"], dataset.data["_class_label"])
+            _logger.info("Process CE multipliers for |weight|, %s = %s", self.model.event_aux_outputs["process"],
+                         self.loss_fn.process_class_weights.tolist())
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         """
@@ -165,9 +189,9 @@ class ModelModule(L.LightningModule):
         if object_label is not None:
             x.pop('object_label')
         object_mask = x['mask']
-        # aux_task = x.get('aux_task', None)
-        # if aux_task is not None:
-        #     x.pop('aux_task')
+        process_info = x.pop("process_info", None)
+        physics_info = x.pop("physics_info", None)
+        relation_info = x.pop("relation_info", None)
         extra_event_info = x.get('extra_event_info', None)
         if extra_event_info is not None:
             x.pop('extra_event_info')
@@ -180,11 +204,22 @@ class ModelModule(L.LightningModule):
         labels = [y[k] for k in y.keys()]
         weight = [w[k] for k in w.keys()][0]
 
-        logits = self(*inputs)
+        if stage == "train" and physics_info is not None and hasattr(self.model, "forward_with_control"):
+            logits = self.model.forward_with_control(inputs, physics_info[:, 2].bool())
+        else:
+            logits = self(*inputs)
+        if hasattr(self.model, "add_reference_prediction"):
+            logits = self.model.add_reference_prediction(logits, extra_event_info)
         loss_kwargs = dict(weight=weight, extra_event_info=extra_event_info,
                            extra_obj_info=(extra_obj_info, object_label, object_mask))
         if self._use_fold_mean:
             loss_kwargs["mean_train_weight"] = self.hparams.mean_train_weight
+        if process_info is not None:
+            loss_kwargs["process_info"] = process_info
+        if physics_info is not None:
+            loss_kwargs["physics_info"] = physics_info
+        if relation_info is not None:
+            loss_kwargs["relation_info"] = relation_info
         loss, scores = self.loss_fn(logits, *labels, **loss_kwargs)
 
         logits, logits_aux, obj_logits = logits
@@ -201,8 +236,12 @@ class ModelModule(L.LightningModule):
                     self.log(f"{stage}_{metric_name}_step", metric, on_step=True, prog_bar=True, logger=True)
 
         if self._cache_epoch_outputs[stage]:
+            selection = {}
+            if any(m["uses_selection_info"] and stage in m["stages"] for m in self.metrics.values()):
+                selection["selection_info"] = physics_info[:, 4:6].detach().cpu()
             self.step_outputs[stage].append(
                 {
+                    **selection,
                     "logits": logits.detach().cpu(),
                     "labels": [label.detach().cpu() for label in labels],
                     "weight": weight.detach().cpu(),
@@ -210,11 +249,33 @@ class ModelModule(L.LightningModule):
             )
 
         if stage == "test":
+            columns = {k: v.numpy(force=True) for k, v in s.items()}
+            relation_names = self.run_cfg.get("relation_output_names", [])
+            if relation_names:
+                relations = logits_aux["shared_parent_logits"]
+                if relations.shape[1] != len(relation_names):
+                    raise ValueError("The relation output names and matrix channels disagree")
+                i, j = torch.triu_indices(relations.shape[-1], relations.shape[-1],
+                                          offset=1, device=relations.device)
+                for index, name in enumerate(relation_names):
+                    domain = "ttbar_pair_valid" if index == 4 else "shared_parent_valid"
+                    pair_scores = relations[:, index, i, j].sigmoid().masked_fill(~logits_aux[domain][:, i, j], -1.)
+                    columns[name] = pair_scores.numpy(force=True)
+            for head, output_names in getattr(self.model, "event_aux_outputs", {}).items():
+                probabilities = logits_aux[head].softmax(dim=1).numpy(force=True)
+                columns.update({name: probabilities[:, i] for i, name in enumerate(output_names)})
+            names = self.run_cfg.get("binary_object_output_names", [])
+            if names:
+                batch_size, _, slots = object_mask.shape
+                if obj_logits is None or obj_logits.shape != (batch_size * slots, len(names)):
+                    raise ValueError("The named binary object outputs must match the logits for each object slot")
+                probabilities = obj_logits.reshape(batch_size, slots, len(names)).sigmoid().numpy(force=True)
+                columns.update({name: probabilities[:, :, i] for i, name in enumerate(names)})
             return {
                 "loss": loss,
                 "scores": scores.numpy(force=True),
                 "weight": weight.numpy(force=True),
-                "spectators": {k: s[k].numpy(force=True) for k in s.keys()}
+                "spectators": columns,
             }
 
         return loss
@@ -275,10 +336,12 @@ class ModelModule(L.LightningModule):
         for i in range(len(outputs[0]["labels"])):
             all_labels.append(torch.cat([o["labels"][i] for o in outputs]))
         all_weights = torch.cat([o["weight"] for o in outputs])
+        selection_info = torch.cat([o["selection_info"] for o in outputs]) if "selection_info" in outputs[0] else None
 
         for metric_name, metric_fn_dict in self.metrics.items():
             if stage in metric_fn_dict["stages"] and metric_fn_dict["on_epoch"]:
-                metric = metric_fn_dict['fn'](all_logits, *all_labels, weight=all_weights)
+                kwargs = {"selection_info": selection_info} if metric_fn_dict["uses_selection_info"] else {}
+                metric = metric_fn_dict['fn'](all_logits, *all_labels, weight=all_weights, **kwargs)
                 _logger.info(f"{stage}_{metric_name}_epoch: \n{metric}")
                 if is_scalar(metric):
                     self.log(f"{stage}_{metric_name}_epoch", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)
